@@ -11,7 +11,7 @@ Thanks to her indications and ideas, her manage to decrease the mortality rates 
 
 But she was not only an incredible nurse, but also a mathematician and statistician. She is mainly recognized because of her "Diagram of the causes of mortality". A polar coordinate chart that is showing the different causes of mortality from April 1854 to March 1855 in a very intuitive manner.
 
-![alt text](https://github.com/adam-p/markdown-here/raw/master/src/common/images/icon48.png "Logo Title Text 1")
+![alt text](https://github.com/xiscapericas/my_tailors_drawer/blob/main/nightingale_challenge/1024px-Nightingale-mortality.jpg "Nightingale Chart")
 
 At 1858 she was announced as a member of the Royal Statistical Society, being the first woman to get that role.
 
