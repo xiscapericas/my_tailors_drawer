@@ -3,10 +3,9 @@
 
 ## 1. Main objective 💡
 
-The aim of this repo is to serve as my personal tailor's drawer.
-All projects that I have started and build will be summarized in their own folder.
+The aim of this repo is to serve as my own "tailor's drawer". All projects that I have started and build will be summarized in their own folder.
 
-This repo will not solve any specific question, but it will be a sidorganized way of presenting multiple attempts of solving different issues in different languages.
+This repo will not solve any specific question, but it will be a disorganized way of presenting multiple attempts of solving different issues in different languages.
 
 You can find, below, the list of projects that you will find here.
 
