@@ -1,0 +1,44 @@
+ids,labels,parents
+Film,Film,
+Television,Television,
+Music,Music,
+Publishing,Publishing,
+Gaming,Gaming,
+Finance,Finance
+Theater,Theater,
+Film-Marvel Entertainment,Marvel Entertainment,Film
+Film-Marvel Studios,Marvel Studios,Film
+Film-Walt Disney Studios,Walt Disney Studios,Film
+Film-Disney Studio Services,Disney Studio Services,Film
+Film-Fox Entertainment Group,Fox Entertainment Group,Film
+Television-Disney ABC Television Group,Disney ABC Television Group,Television
+Television-ESPN Inc,ESPN Inc,Television
+Television-Fox Sports Media Group,Fox Sports Media Group,Television
+Television-Fox Network Group,Fox Network Group,Television
+Music-Disney Music Group,Disney Music Group,Music
+Publishing-Disney Publishing Worldwide,Disney Publishing Worldwide,Publishing
+Publishing-National Geographic Magazine,National Geographic Magazine,Publishing
+Publishing-ESPN Magazine,ESPN Magazine,Publishing
+Publishing-Marvel Worldwide Inc,Marvel Worldwide Inc,Publishing
+Gaming-Disney Games and Interactive Experiences,Disney Games and Interactive Experiences,Gaming
+Finance-Arvide Disney Financial System,Arvide Disney Financial System,Finance
+Finance-Catalyst Investment,Catalyst Investment,Finance
+Theater-Disney Theatrical Group,Disney Theatrical Group,Theater
+Marvel Entertainment-Marvel Television,Marvel Television,Film-Marvel Entertainment
+Marvel Entertainment-Marvel Toys,Marvel Toys,Film-Marvel Entertainment
+Marvel Entertainment-Marvel Worldwide Inc,Marvel Worldwide Inc,Film-Marvel Entertainment
+Walt Disney Studios-Motion Pictures,Motion Pictures,Film-Walt Disney Studios
+Walt Disney Studios-Pictures,Pictures,Film-Walt Disney Studios
+Walt Disney Studios-Lucasfilm Ltd,Lucasfilm Ltd,Film-Walt Disney Studios
+Walt Disney Studios-Animation Studios,Animation Studios,Film-Walt Disney Studios
+Walt Disney Studios-Pixar,Pixar,Film-Walt Disney Studios
+Lucasfilm Ltd-Lucas Arts,Lucas Arts,Walt Disney Studios-Lucasfilm Ltd
+Lucasfilm Ltd-Skywalker Sound,Skywalker Sound,Walt Disney Studios-Lucasfilm Ltd
+Lucasfilm Ltd-Lucasfilm Animation,Lucasfilm Animation,Walt Disney Studios-Lucasfilm Ltd
+Lucasfilm Ltd-Lucasfilm Licensing,Lucasfilm Licensing,Walt Disney Studios-Lucasfilm Ltd
+Lucasfilm Ltd-Industrial Light and magic,Industrial Light and magic,Walt Disney Studios-Lucasfilm Ltd
+Disney Games and Interactive Experiences-Disney Mobile,Disney Mobile,Gaming-Disney Games and Interactive Experiences
+Disney Games and Interactive Experiences-DCPI Labs Team,DCPI Labs Team,Gaming-Disney Games and Interactive Experiences
+Disney Games and Interactive Experiences-Gamestar,Gamestar,Gaming-Disney Games and Interactive Experiences
+Disney Games and Interactive Experiences-Disney Canada Inc,Disney Canada Inc,Gaming-Disney Games and Interactive Experiences
+Disney Games and Interactive Experiences-Rocket Pack,Rocket Pack,Gaming-Disney Games and Interactive Experiences

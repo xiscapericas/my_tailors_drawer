@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<!--[if lt IE 7]>      <html class="no-js lt-ie9 lt-ie8 lt-ie7"> <![endif]-->
+<!--[if IE 7]>         <html class="no-js lt-ie9 lt-ie8"> <![endif]-->
+<!--[if IE 8]>         <html class="no-js lt-ie9"> <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js"> <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <title>rCharts</title>
+  <meta name="description" content="">
+  <meta name="viewport" content="width=device-width">
+  <link rel="icon" type="image/png" href="favicon.ico">
+  <style>
+  body {
+    padding-top: 60px;
+    padding-bottom: 40px;
+  }
+  </style>
+  
+<link href="http://netdna.bootstrapcdn.com/twitter-bootstrap/2.1.1/css/bootstrap.no-responsive.no-icons.min.css" rel="stylesheet">
+<!-- <link rel="stylesheet" href="/css/bootstrap.min.css"> -->
+<link  rel="stylesheet" 
+    href="http://netdna.bootstrapcdn.com/font-awesome/2.0/css/font-awesome.css">
+  <link rel="stylesheet" href="libraries/frameworks/bootstrap/css/bootstrap-responsive.min.css">
+  
+  <link rel="stylesheet" href="libraries/frameworks/bootstrap/css/main.css">
+  <link rel="stylesheet" href="libraries/highlighters/prettify/css/twitter-bootstrap.css" />
+  <script src="libraries/frameworks/bootstrap/js/vendor/modernizr-2.6.1-respond-1.1.0.min.js"></script>
+  <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js"></script>
+  <script>window.jQuery || document.write('<script src="libraries/frameworks/bootstrap/js/vendor/jquery-1.8.2.min.js"><\/script>')</script>
+    <link rel=stylesheet href="http://fonts.googleapis.com/css?family=Raleway:300"></link>
+<link rel=stylesheet href="http://fonts.googleapis.com/css?family=Oxygen"></link>
+
+  <script src="../libraries/widgets/micropolar/js/d3.js"></script>
+<script src="../libraries/widgets/micropolar/js/micropolar.js"></script>
+
+</head>
+<body>
+   <!--[if lt IE 7]>
+     <p class="chromeframe">You are using an outdated browser. 
+       <a href="http://browsehappy.com/">Upgrade your browser today</a> or 
+       <a href="http://www.google.com/chromeframe/?redirect=true"> 
+         install Google Chrome Frame
+       </a> to better experience this site.
+    </p>
+   <![endif]-->
+   <!-- Ref: http://twitter.github.com/bootstrap/examples/hero.html -->
+   
+    <div class="container">
+      
+<style>
+a {
+  color: #08c !important
+}
+
+body{
+  font-family: 'Oxygen', sans-serif;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+h1,h2,h3,h4 {
+  font-family: 'Raleway', sans-serif;
+}
+
+.container { width: 900px; }
+
+h3 {
+  background-color: #D4DAEC;
+    text-indent: 100px; 
+}
+
+h4 {
+  text-indent: 100px;
+}
+
+</style>
+  
+
+<p><a href="https://github.com/timelyportfolio/rCharts_micropolar"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://s3.amazonaws.com/github/ribbons/forkme_right_darkblue_121621.png" alt="Fork me on GitHub"></a></p>
+
+<h2>micropolar Nightingale Coxcombs</h2>
+
+<p>As I continue my exploration of all the use cases for Polar Coordinates, I found lots of references to <a href="http://understandinguncertainty.org/coxcombs">Florence Nightingale&#39;s coxcomb diagrams</a>.  Below is an image from Wikipedia.</p>
+
+<p><img src="http://upload.wikimedia.org/wikipedia/commons/1/17/Nightingale-mortality.jpg" alt="Nightingale Causes of Mortality"></p>
+
+<p>I then rediscovered this nice listing of <a href="http://vincentarelbundock.github.io/Rdatasets/index.html">R datasets</a> which had a <a href="http://vincentarelbundock.github.io/Rdatasets/doc/HistData/Nightingale.html">detailed post</a> on the data behind Florence Nightingale&#39;s coxcomb plot of mortality during the Crimean War.</p>
+
+<p>With the new <a href="http://micropolar.org"><code>micropolar</code> libary</a> and <a href="http://rcharts.io">rCharts</a>, we should be able to produce an interactive <a href="http://d3js.org"><code>d3js</code></a> version.  You might notice this is not exactly the same, so consider it a work in progress.  However, here is how you can get close with a few lines of R code.</p>
+
+<h3>Get Data and Dress it Up</h3>
+
+<p>Thanks to the <a href="https://github.com/vincentarelbundock/Rdatasets/">R datasets listing</a> I discovered that there is a <code>Nightingale</code> dataset in the <code>HistData</code> package.  The data is not big, but this still saved quite of bit of time.</p>
+
+<pre><code class="r"># Thanks to the R datasets github repo
+# http://vincentarelbundock.github.io/Rdatasets/doc/HistData/Nightingale.html
+
+library(HistData)
+data(Nightingale)
+
+
+# transform our data to a good format for rCharts
+night.df &lt;- data.frame(
+  1 : nrow(Nightingale) * 180 / nrow(Nightingale),
+  # make numeric javascript date
+  as.numeric(as.POSIXct(as.Date(Nightingale[,1])))*1000, 
+  apply(Nightingale[,8:10], MARGIN = 1, sum)
+)
+colnames( night.df ) &lt;- c( &quot;number&quot;, &quot;date&quot;, &quot;rate&quot; )
+night.df$regime &lt;- c(rep(&#39;Before&#39;, 12), rep(&#39;After&#39;, 12))
+night.df$month &lt;- format(as.Date(Nightingale$Date), &quot;%b %Y&quot;)
+
+# For some graphs, it is more convenient to reshape death rates to long format
+# we will need in this format for the staced area micropolar chart
+require(reshape)
+Night&lt;- Nightingale[,c(1,8:10)]
+melted &lt;- melt(Night, &quot;Date&quot;)
+names(melted) &lt;- c(&quot;Date&quot;, &quot;Cause&quot;, &quot;Deaths&quot;)
+melted$Cause &lt;- sub(&quot;\\.rate&quot;, &quot;&quot;, melted$Cause)
+melted$Regime &lt;- ordered( rep(c(rep(&#39;Before&#39;, 12), rep(&#39;After&#39;, 12)), 3), levels=c(&#39;Before&#39;, &#39;After&#39;))
+Night &lt;- melted
+Night$Month &lt;- format(Night$Date, &quot;%b %Y&quot;)
+</code></pre>
+
+<h3>Interactive Charts</h3>
+
+<div class="row">
+<div id = "chart1" class = "span4"></div>
+<div id = "chart2" class = "span4"></div>
+</div>
+
+<p>Below is the code to generate the charts above.</p>
+
+<pre><code class="r">require(rCharts)
+
+make_dataset = function(data = data){
+  lapply(toJSONArray2(data, json = F, names = F), unlist)
+}
+
+
+nightPlot &lt;- rCharts$new()
+nightPlot$setLib( path )
+nightPlot$set(
+  #remove [1:12] if you want Before and After to show on same plot
+  data = make_dataset( night.df[1:12, c(&quot;month&quot;,&quot;rate&quot;) ] ),  
+  #data = make_dataset( x = &quot;Month&quot;, y = &quot;Deaths&quot;, subset(Night, Regime == &quot;Before&quot;) ),
+  radialDomain = c( 0, ceiling( max(night.df$rate) ) ),
+  angularDomain = 
+    night.df$month[1:12],
+    #paste0(
+    #  &quot;#!d3.time.format(&#39;%b %Y&#39;)(new Date(&quot;,
+    #  subset(night.df, regime == &quot;Before&quot;)$date[1:12],
+    #  subset(Night, Regime == &quot;Before&quot;)$Date[1:12],
+    #  &quot;))!#&quot;),
+  type = &quot;areaChart&quot;,
+  minorTicks = 0,
+  radialTicksSuffix = &#39;&#39;,
+  height = 300,
+  width = 300
+)
+cat(nightPlot$html(chartId=&quot;chart1&quot;))
+</code></pre>
+
+<script>
+  var chartParamschart1 = {
+ "dom": "chart1",
+"width":    300,
+"height":    300,
+"data": [
+ [ "Apr 1854", "8.4" ],
+[ "May 1854", "10.8" ],
+[ "Jun 1854", "7.2" ],
+[ "Jul 1854", "159.6" ],
+[ "Aug 1854", "340.8" ],
+[ "Sep 1854", "372" ],
+[ "Oct 1854", "298.8" ],
+[ "Nov 1854", "499.2" ],
+[ "Dec 1854", "721.2" ],
+[ "Jan 1855", "1173.5" ],
+[ "Feb 1855", "979.2" ],
+[ "Mar 1855", "561.7" ] 
+],
+"radialDomain": [      0,   1174 ],
+"angularDomain": [ "Apr 1854", "May 1854", "Jun 1854", "Jul 1854", "Aug 1854", "Sep 1854", "Oct 1854", "Nov 1854", "Dec 1854", "Jan 1855", "Feb 1855", "Mar 1855" ],
+"type": "areaChart",
+"minorTicks":      0,
+"radialTicksSuffix": "",
+"id": "chart1" 
+}
+  chartParamschart1.containerSelector = '#chart1'
+  micropolar.preset[chartParamschart1.type](
+    chartParamschart1
+  )
+</script>
+
+<pre><code class="r">
+nightPlot &lt;- rCharts$new()
+nightPlot$setLib( path )
+nightPlot$set(
+  data = make_dataset( night.df[13:24, c(&quot;month&quot;,&quot;rate&quot;)] ),
+  #data = make_dataset( x = &quot;Month&quot;, y = &quot;Deaths&quot;, subset(Night, Regime == &quot;After&quot;) ),
+  radialDomain = c( 0, ceiling( max(night.df$rate) ) ),
+  angularDomain = 
+    subset(night.df, regime == &quot;After&quot;)$month[1:12],
+    #paste0(
+    #  &quot;#!d3.time.format(&#39;%b %Y&#39;)(new Date(&quot;,
+    #  subset(Night, Regime == &quot;After&quot;)$Date[1:12],
+    #  &quot;))!#&quot;),
+  type = &quot;areaChart&quot;,
+  minorTicks = 0,
+  radialTicksSuffix = &#39;&#39;,
+  height = 300,
+  width = 300
+)
+cat(nightPlot$html(chartId=&quot;chart2&quot;))
+</code></pre>
+
+<script>
+  var chartParamschart2 = {
+ "dom": "chart2",
+"width":    300,
+"height":    300,
+"data": [
+ [ "Apr 1855", "216.6" ],
+[ "May 1855", "200.9" ],
+[ "Jun 1855", "321.7" ],
+[ "Jul 1855", "154.5" ],
+[ "Aug 1855", "180.7" ],
+[ "Sep 1855", "121.9" ],
+[ "Oct 1855", "51" ],
+[ "Nov 1855", "77" ],
+[ "Dec 1855", "38.1" ],
+[ "Jan 1856", "24.9" ],
+[ "Feb 1856", "11.8" ],
+[ "Mar 1856", "13" ] 
+],
+"radialDomain": [      0,   1174 ],
+"angularDomain": [ "Apr 1855", "May 1855", "Jun 1855", "Jul 1855", "Aug 1855", "Sep 1855", "Oct 1855", "Nov 1855", "Dec 1855", "Jan 1856", "Feb 1856", "Mar 1856" ],
+"type": "areaChart",
+"minorTicks":      0,
+"radialTicksSuffix": "",
+"id": "chart2" 
+}
+  chartParamschart2.containerSelector = '#chart2'
+  micropolar.preset[chartParamschart2.type](
+    chartParamschart2
+  )
+</script>
+
+<h5>Where is the Stack?</h5>
+
+<p>You might notice that we are missing the stacked area.  With micropolar version 0.1.1, we can now accomplish this also.</p>
+
+<div class="row">
+<div id = "chart3" class = "span4"></div>
+<div id = "chart4" class = "span4"></div>
+</div>
+
+<pre><code class="r">nightPlot &lt;- rCharts$new()
+nightPlot$setLib( path )
+nightPlot$templates$script = paste(getwd(),&quot;stackedArea.html&quot;,sep=&quot;/&quot;)
+nightPlot$set(
+  #remove [1:12] if you want Before and After to show on same plot
+  data = make_dataset( subset(Night, Regime == &quot;Before&quot;)[,c(&quot;Month&quot;,&quot;Deaths&quot;,&quot;Cause&quot;)] ),
+  radialDomain = c( 0, ceiling( max(night.df$rate) ) ),
+  angularDomain = 
+    night.df$month[1:12],
+  additionalAngularEndTick = F,
+  margin = 35,
+  originTheta = -90,
+  radialAxisTheta = -30,
+  type = &quot;StackedAreaChart&quot;,
+  minorTicks = 0,
+  radialTicksSuffix = &#39;&#39;,
+  height = 300,
+  width = 300
+)
+cat(nightPlot$html(chartId=&quot;chart3&quot;))
+</code></pre>
+
+<script>
+  var chartParamschart3 = {
+ "dom": "chart3",
+"width":    300,
+"height":    300,
+"data": [
+ [ "Apr 1854", "1.4", "Disease" ],
+[ "May 1854", "6.2", "Disease" ],
+[ "Jun 1854", "4.7", "Disease" ],
+[ "Jul 1854", "150", "Disease" ],
+[ "Aug 1854", "328.5", "Disease" ],
+[ "Sep 1854", "312.2", "Disease" ],
+[ "Oct 1854", "197", "Disease" ],
+[ "Nov 1854", "340.6", "Disease" ],
+[ "Dec 1854", "631.5", "Disease" ],
+[ "Jan 1855", "1022.8", "Disease" ],
+[ "Feb 1855", "822.8", "Disease" ],
+[ "Mar 1855", "480.3", "Disease" ],
+[ "Apr 1854", "0", "Wounds" ],
+[ "May 1854", "0", "Wounds" ],
+[ "Jun 1854", "0", "Wounds" ],
+[ "Jul 1854", "0", "Wounds" ],
+[ "Aug 1854", "0.4", "Wounds" ],
+[ "Sep 1854", "32.1", "Wounds" ],
+[ "Oct 1854", "51.7", "Wounds" ],
+[ "Nov 1854", "115.8", "Wounds" ],
+[ "Dec 1854", "41.7", "Wounds" ],
+[ "Jan 1855", "30.7", "Wounds" ],
+[ "Feb 1855", "16.3", "Wounds" ],
+[ "Mar 1855", "12.8", "Wounds" ],
+[ "Apr 1854", "7", "Other" ],
+[ "May 1854", "4.6", "Other" ],
+[ "Jun 1854", "2.5", "Other" ],
+[ "Jul 1854", "9.6", "Other" ],
+[ "Aug 1854", "11.9", "Other" ],
+[ "Sep 1854", "27.7", "Other" ],
+[ "Oct 1854", "50.1", "Other" ],
+[ "Nov 1854", "42.8", "Other" ],
+[ "Dec 1854", "48", "Other" ],
+[ "Jan 1855", "120", "Other" ],
+[ "Feb 1855", "140.1", "Other" ],
+[ "Mar 1855", "68.6", "Other" ] 
+],
+"radialDomain": [      0,   1174 ],
+"angularDomain": [ "Apr 1854", "May 1854", "Jun 1854", "Jul 1854", "Aug 1854", "Sep 1854", "Oct 1854", "Nov 1854", "Dec 1854", "Jan 1855", "Feb 1855", "Mar 1855" ],
+"additionalAngularEndTick": false,
+"margin":     35,
+"originTheta":    -90,
+"radialAxisTheta":    -30,
+"type": "StackedAreaChart",
+"minorTicks":      0,
+"radialTicksSuffix": "",
+"id": "chart3" 
+}
+  chartParamschart3.containerSelector = '#chart3'
+  
+  var polarPlot = micropolar[chartParamschart3.type]();
+  
+  chartParamschart3.geometry = polarPlot;
+  
+  var polarAxis = micropolar.Axis().config(chartParamschart3);
+  polarAxis();
+</script>
+
+<pre><code class="r">
+nightPlot &lt;- rCharts$new()
+nightPlot$setLib( path )
+nightPlot$templates$script = paste(getwd(),&quot;stackedArea.html&quot;,sep=&quot;/&quot;)
+nightPlot$set(
+  #remove [1:12] if you want Before and After to show on same plot
+  data = make_dataset( subset(Night, Regime == &quot;After&quot;)[,c(&quot;Month&quot;,&quot;Deaths&quot;,&quot;Cause&quot;)] ),
+  radialDomain = c( 0, ceiling( max(night.df$rate) ) ),
+  angularDomain = 
+    night.df$month[13:24],
+  additionalAngularEndTick = F,
+  margin = 35,
+  originTheta = -90,
+  radialAxisTheta= -30,
+  type = &quot;StackedAreaChart&quot;,
+  minorTicks = 0,
+  radialTicksSuffix = &#39;&#39;,
+  height = 300,
+  width = 300
+)
+cat(nightPlot$html(chartId=&quot;chart4&quot;))
+</code></pre>
+
+<script>
+  var chartParamschart4 = {
+ "dom": "chart4",
+"width":    300,
+"height":    300,
+"data": [
+ [ "Apr 1855", "177.5", "Disease" ],
+[ "May 1855", "171.8", "Disease" ],
+[ "Jun 1855", "247.6", "Disease" ],
+[ "Jul 1855", "107.5", "Disease" ],
+[ "Aug 1855", "129.9", "Disease" ],
+[ "Sep 1855", "47.5", "Disease" ],
+[ "Oct 1855", "32.8", "Disease" ],
+[ "Nov 1855", "56.4", "Disease" ],
+[ "Dec 1855", "25.3", "Disease" ],
+[ "Jan 1856", "11.4", "Disease" ],
+[ "Feb 1856", "6.6", "Disease" ],
+[ "Mar 1856", "3.9", "Disease" ],
+[ "Apr 1855", "17.9", "Wounds" ],
+[ "May 1855", "16.6", "Wounds" ],
+[ "Jun 1855", "64.5", "Wounds" ],
+[ "Jul 1855", "37.7", "Wounds" ],
+[ "Aug 1855", "44.1", "Wounds" ],
+[ "Sep 1855", "69.4", "Wounds" ],
+[ "Oct 1855", "13.6", "Wounds" ],
+[ "Nov 1855", "10.5", "Wounds" ],
+[ "Dec 1855", "5", "Wounds" ],
+[ "Jan 1856", "0.5", "Wounds" ],
+[ "Feb 1856", "0", "Wounds" ],
+[ "Mar 1856", "0", "Wounds" ],
+[ "Apr 1855", "21.2", "Other" ],
+[ "May 1855", "12.5", "Other" ],
+[ "Jun 1855", "9.6", "Other" ],
+[ "Jul 1855", "9.3", "Other" ],
+[ "Aug 1855", "6.7", "Other" ],
+[ "Sep 1855", "5", "Other" ],
+[ "Oct 1855", "4.6", "Other" ],
+[ "Nov 1855", "10.1", "Other" ],
+[ "Dec 1855", "7.8", "Other" ],
+[ "Jan 1856", "13", "Other" ],
+[ "Feb 1856", "5.2", "Other" ],
+[ "Mar 1856", "9.1", "Other" ] 
+],
+"radialDomain": [      0,   1174 ],
+"angularDomain": [ "Apr 1855", "May 1855", "Jun 1855", "Jul 1855", "Aug 1855", "Sep 1855", "Oct 1855", "Nov 1855", "Dec 1855", "Jan 1856", "Feb 1856", "Mar 1856" ],
+"additionalAngularEndTick": false,
+"margin":     35,
+"originTheta":    -90,
+"radialAxisTheta":    -30,
+"type": "StackedAreaChart",
+"minorTicks":      0,
+"radialTicksSuffix": "",
+"id": "chart4" 
+}
+  chartParamschart4.containerSelector = '#chart4'
+  
+  var polarPlot = micropolar[chartParamschart4.type]();
+  
+  chartParamschart4.geometry = polarPlot;
+  
+  var polarAxis = micropolar.Axis().config(chartParamschart4);
+  polarAxis();
+</script>
+
+<h3>Static Versions from Rdatasets Post</h3>
+
+<p>As a comparison, I just copied the code from <a href="http://cran.r-project.org/web/packages/HistData/HistData.pdf">the <code>HistData</code> documentation</a> which offered a couple static <code>ggplot2</code> and <code>base</code> plots of the Nightingale data.</p>
+
+<pre><code class="r">##### original code for reference
+
+# For some graphs, it is more convenient to reshape death rates to long format
+#  keep only Date and death rates
+require(reshape)
+Night&lt;- Nightingale[,c(1,8:10)]
+melted &lt;- melt(Night, &quot;Date&quot;)
+names(melted) &lt;- c(&quot;Date&quot;, &quot;Cause&quot;, &quot;Deaths&quot;)
+melted$Cause &lt;- sub(&quot;\\.rate&quot;, &quot;&quot;, melted$Cause)
+melted$Regime &lt;- ordered( rep(c(rep(&#39;Before&#39;, 12), rep(&#39;After&#39;, 12)), 3), levels=c(&#39;Before&#39;, &#39;After&#39;))
+Night &lt;- melted
+Night$Month &lt;- format(Night$Date, &quot;%b %Y&quot;)
+# make numeric javascript date
+#Night$Date &lt;- as.numeric(as.POSIXct(as.Date(Night$Date)))*1000
+
+# subsets, to facilitate separate plotting
+Night1 &lt;- subset(Night, Date &lt; as.Date(&quot;1855-04-01&quot;))
+Night2 &lt;- subset(Night, Date &gt;= as.Date(&quot;1855-04-01&quot;))
+
+## Not run: 
+require(ggplot2)
+# Before plot
+cxc1 &lt;- ggplot(Night1, aes(x = factor(Date), y=Deaths, fill = Cause)) +
+    # do it as a stacked bar chart first
+ geom_bar(width = 1, position=&quot;identity&quot;, color=&quot;black&quot;) +
+        # set scale so area ~ Deaths    
+ scale_y_sqrt() 
+        # A coxcomb plot = bar chart + polar coordinates
+cxc1 + coord_polar(start=3*pi/2) + 
+    ggtitle(&quot;Causes of Mortality in the Army in the East&quot;) + 
+    xlab(&quot;&quot;)
+</code></pre>
+
+<p><img src="assets/fig/unnamed-chunk-51.png" alt="plot of chunk unnamed-chunk-5"> </p>
+
+<pre><code class="r">
+# After plot
+cxc2 &lt;- ggplot(Night2, aes(x = factor(Date), y=Deaths, fill = Cause)) +
+ geom_bar(width = 1, position=&quot;identity&quot;, color=&quot;black&quot;) +
+ scale_y_sqrt()
+cxc2 + coord_polar(start=3*pi/2) +
+    ggtitle(&quot;Causes of Mortality in the Army in the East&quot;) + 
+    xlab(&quot;&quot;)
+</code></pre>
+
+<p><img src="assets/fig/unnamed-chunk-52.png" alt="plot of chunk unnamed-chunk-5"> </p>
+
+<pre><code class="r">
+# do both together, with faceting
+cxc &lt;- ggplot(Night, aes(x = factor(Date), y=Deaths, fill = Cause)) +
+ geom_bar(width = 1, position=&quot;identity&quot;, color=&quot;black&quot;) + 
+ scale_y_sqrt() +
+ facet_grid(. ~ Regime, scales=&quot;free&quot;, labeller=label_both)
+cxc + coord_polar(start=3*pi/2) +
+    ggtitle(&quot;Causes of Mortality in the Army in the East&quot;) + 
+    xlab(&quot;&quot;)
+</code></pre>
+
+<p><img src="assets/fig/unnamed-chunk-53.png" alt="plot of chunk unnamed-chunk-5"> </p>
+
+<pre><code class="r">
+## End(Not run)
+
+## What if she had made a set of line graphs?
+
+colors &lt;- c(&quot;blue&quot;, &quot;red&quot;, &quot;black&quot;)
+with(Nightingale, {
+    plot(Date, Disease.rate, type=&quot;n&quot;, col=&quot;blue&quot;, 
+        ylab=&quot;Annual Death Rate&quot;, xlab=&quot;Date&quot;, xaxt=&quot;n&quot;,
+        main=&quot;Causes of Mortality of the British Army in the East&quot;);
+    # background, to separate before, after
+    rect(as.Date(&quot;1854/4/1&quot;), -10, as.Date(&quot;1855/3/1&quot;), 
+        1.02*max(Disease.rate), col=&quot;lightgray&quot;, border=&quot;transparent&quot;);
+    text( as.Date(&quot;1854/4/1&quot;), .98*max(Disease.rate), &quot;Before Sanitary\nCommission&quot;, pos=4);
+    text( as.Date(&quot;1855/4/1&quot;), .98*max(Disease.rate), &quot;After Sanitary\nCommission&quot;, pos=4);
+    # plot the data
+    points(Date, Disease.rate, type=&quot;b&quot;, col=colors[1]);
+    points(Date, Wounds.rate, type=&quot;b&quot;, col=colors[2]);
+    points(Date, Other.rate, type=&quot;b&quot;, col=colors[3])
+    }
+)
+# add custom Date axis and legend
+axis.Date(1, at=seq(as.Date(&quot;1854/4/1&quot;), as.Date(&quot;1856/3/1&quot;), &quot;4 months&quot;), format=&quot;%b %Y&quot;)
+legend(as.Date(&quot;1855/10/20&quot;), 700, c(&quot;Disease&quot;, &quot;Wounds&quot;, &quot;Other&quot;),
+    col=colors, fill=colors, title=&quot;Cause&quot;)
+</code></pre>
+
+<p><img src="assets/fig/unnamed-chunk-54.png" alt="plot of chunk unnamed-chunk-5"> </p>
+
+<h3>Thanks</h3>
+
+<p>Thanks to <a href="http://github.com/biovisualize">Chris Viau</a>, <a href="http://github.com/ramanthv">Ramnath Vaidyanathan</a>, and <a href="https://github.com/vincentarelbundock">Vincent Arelbundock</a>.</p>
+
+    </div>
+        
+</body>
+  <script src="libraries/frameworks/bootstrap/js/vendor/bootstrap.min.js"></script>
+  <script src="libraries/frameworks/bootstrap/js/plugins.js"></script>
+  <script src="libraries/frameworks/bootstrap/js/main.js"></script>
+  <!-- Load Javascripts for Widgets -->
+  
+  <!-- Google Prettify -->
+  <script src="http://cdnjs.cloudflare.com/ajax/libs/prettify/188.0.0/prettify.js"></script>
+  <script src='libraries/highlighters/prettify/js/lang-r.js'></script>
+  <script>
+    var pres = document.getElementsByTagName("pre");
+    for (var i=0; i < pres.length; ++i) {
+      pres[i].className = "prettyprint linenums";
+    }
+    prettyPrint();
+  </script>
+  <!-- End Google Prettify --> 
+  </html>
