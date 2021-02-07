@@ -1,5 +1,4 @@
-# My Tailor's Drawer
-----
+# My Tailor's Drawer 🔨
 
 
 ## 1. Main objective 💡
@@ -18,7 +17,8 @@ You can find, below, the list of projects that you will find here.
 | Florence Nightingale 30 day Challenge  | 2020-07-01  | R | Challenge of developing one graph during 30 days to commemorate Florence Nightingale anniversary
 
 
-## 3. Contact Details	✉️
+## 3. Contact details	✉️
 
-**Author: Xisca Pericas**
-**Last update date: 2021-02-08**
+**Author**: Xisca Pericas - mfpericas@gmail.com
+
+**Last update date** : 2021-02-08
