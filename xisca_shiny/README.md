@@ -33,7 +33,7 @@ If you like the app or if you are interested in reading more about it, here are 
 
 - [Mastering Shiny](https://mastering-shiny.org/index.html): o'Reilly book to know about Shiny Apps
 - [Shiny RInterface](https://unleash-shiny.rinterface.com/web-intro.html): a second book to understand how the webdevelopment works for a Shiny App. 
-- [Dean Attali Webpage](https://deanattali.com/: this is a blog from a Shiny Expert. He has developed several shiny packages and is always blogging about nice tricks to apply on your shiny apps. 
+- [Dean Attali Webpage](https://deanattali.com/): this is a blog from a Shiny Expert. He has developed several shiny packages and is always blogging about nice tricks to apply on your shiny apps. 
 
 
 ## 4. Contact details	✉️
