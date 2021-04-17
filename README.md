@@ -13,6 +13,7 @@ You can find, below, the list of projects that you will find here.
 
 | Project Name  | Last update date | Main language | Description |
 | ------------- | ------------- | ------------- | ------------- |
+| Xisca Shiny  | 2021-04-17  | R+Shiny+CSS | Building my own website using R-Shiny together with a bit of HTML/CSS/Javascript
 | Florence Nightingale 30 day Challenge  | 2020-07-01  | R | Challenge of developing one graph during 30 days to commemorate Florence Nightingale anniversary
 
 
@@ -20,4 +21,4 @@ You can find, below, the list of projects that you will find here.
 
 **Author**: Xisca Pericas - mfpericas@gmail.com
 
-**Last update date** : 2021-02-08
+**Last update date** : 2021-04-17
