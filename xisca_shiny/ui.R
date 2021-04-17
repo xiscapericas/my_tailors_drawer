@@ -27,7 +27,8 @@ shinyUI(
     tags$link(rel="stylesheet", type = "text/css", href = "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css"),
     tags$link(rel="stylesheet", type = "text/css", href="//netdna.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css"), 
     tags$link(rel="stylesheet", type = 'text/css', href = "timeline.css"),
-    tags$link(rel="stylesheet", type = 'text/css', href = "xisca_shiny.css")
+    tags$link(rel="stylesheet", type = 'text/css', href = "xisca_shiny.css"), 
+    tags$title('Xisca Pe')
   ),
 
     
