@@ -242,3 +242,7 @@ p {
 .navbar .container-fluid {
   padding-left: 30px;
 }
+
+.p_with_href {
+  margin-bottom: 1.5em;
+}

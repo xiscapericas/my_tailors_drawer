@@ -39,7 +39,12 @@ home <- tabPanel(
                                h2("Hi people, "),
                                h2("I have recently added a new project called Xisca-Shiny"), 
                                br(), 
-                               p("My new project is focused on the design and development of the webpage you are now checking. This page has been built completly using R, Shiny and a bit of HTML/Javascript/CSS. If you want to learn how I built it and find some resources to build your own, just click on the button below.")
+                               p("My new project is focused on the design and development of the webpage you are now checking. This page has been built completly using R, Shiny and a bit of HTML/Javascript/CSS"),  
+                               tags$div(class = 'p_with_href', 
+                                 tags$p("Thats a lot to ", style = "display:inline"),   
+                                 tags$a(href = 'https://www.miquelmirmiquel.com/', "Miquel Mir", style = "margin-top: 0; margin-bottom: 1.5rem; font-size: 16px; color: gray; line-height:2.7rem; display: inline; color: var(--pink-color-bold9)"), tags$p(" (UI/UX designer) for all his help in building this UI!", style = "display:inline")
+                               )
+                               
                         ), 
                         column(width = 1), 
                         fluidRow(
@@ -47,8 +52,8 @@ home <- tabPanel(
                           column(width = 12, align = 'right', 
                                  ## Button check it out 
                                  actionButton("button_check_it_out_xisca_shiny", 
-                                              "Check it out", class = 'btn-secundary'
-                                              #onclick ="window.open('https://github.com/xiscapericas/my_tailors_drawer/tree/main/nightingale_challenge', '_blank')"),
+                                              "Check it out", class = 'btn-secundary',
+                                              onclick ="window.open('https://github.com/xiscapericas/my_tailors_drawer/tree/main/xisca_shiny', '_blank')"
                                  )
                           )
                         )

@@ -46,7 +46,8 @@ projects <- tabPanel(
                             fluidRow(
                               column(width = 12, align = 'right', 
                                      actionButton("button_project_xiscashiny", 
-                                                  "View Project", class = 'btn-secundary'
+                                                  "View Project", class = 'btn-secundary',
+                                                  onclick ="window.open('https://github.com/xiscapericas/my_tailors_drawer/tree/main/xisca_shiny', '_blank')"
                                                   
                                      )
                                      )
