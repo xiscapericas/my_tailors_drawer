@@ -41,7 +41,7 @@ home <- tabPanel(
                                br(), 
                                p("My new project is focused on the design and development of the webpage you are now checking. This page has been built completly using R, Shiny and a bit of HTML/Javascript/CSS"),  
                                tags$div(class = 'p_with_href', 
-                                 tags$p("Thats a lot to ", style = "display:inline"),   
+                                 tags$p("Thanks a lot to ", style = "display:inline"),   
                                  tags$a(href = 'https://www.miquelmirmiquel.com/', "Miquel Mir", style = "margin-top: 0; margin-bottom: 1.5rem; font-size: 16px; color: gray; line-height:2.7rem; display: inline; color: var(--pink-color-bold9)"), tags$p(" (UI/UX designer) for all his help in building this UI!", style = "display:inline")
                                )
                                
