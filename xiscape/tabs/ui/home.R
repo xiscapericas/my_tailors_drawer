@@ -53,7 +53,7 @@ home <- tabPanel(
                                  ## Button check it out 
                                  actionButton("button_check_it_out_xisca_shiny", 
                                               "Check it out", class = 'btn-secundary',
-                                              onclick ="window.open('https://github.com/xiscapericas/my_tailors_drawer/tree/main/xisca_shiny', '_blank')"
+                                              onclick ="window.open('https://github.com/xiscapericas/my_tailors_drawer/tree/main/xiscape', '_blank')"
                                  )
                           )
                         )
