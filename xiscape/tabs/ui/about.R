@@ -25,7 +25,7 @@ about <- tabPanel(
                            #h1('Data Scientist & Biomedical Engineer'), 
                            tags$div(class = 'description', 
                                     
-                                    tags$p("Hi everyone! my name is Xisca and I'm a Senior Data Scientist from Spain. Currently I'm working as a product 
+                                    tags$p("Hi everyone! my name is Xisca and I'm a Senior Data Scientist from Mallorca (Spain). Currently I'm working as a product 
                                            researcher in a software company, but I have also worked in an e-commerce company and as a consultant"), 
                                     tags$p("I love data in all forms! Along the past years I have joined several data/hackathons 
                                            focused in different topics as shopping carts, accidents and weather predictions and so on. 

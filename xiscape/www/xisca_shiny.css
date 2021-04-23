@@ -20,6 +20,7 @@
   --light-gray-color:#f8f8f8;
   --pink-color: rgba(252, 156, 258, .1);
   --pink-color-bold: rgba(252, 156, 258, .2);
+  --pink-color-bold3: rgba(252, 156, 258, .35);
   --pink-color-bold9: rgba(252, 156, 258, .9);
    --pink-color-bold5: rgba(252, 156, 258, .5);
 }
@@ -29,68 +30,68 @@ body {
 }
 
 h1 {
-  margin-top: 1.12rem;
-  margin-bottom: 1.12rem;
+  margin-top: 1.6rem;
+  margin-bottom: 1.6rem;
   font-weight: bold;
   font-size: 30px;
-  line-height:2.7rem;
+  line-height:3.2rem;
 }
 
 h2 {
-  margin-top: 0.75rem;
-  margin-bottom: 0.75rem;
+  margin-top: 0.8rem;
+  margin-bottom: 0.8rem;
   font-weight: bold;
   font-size: 24px;
-  line-height:2.7rem;
+  line-height:3.2rem;
 }
 
 
 h3 {
-  margin-top: 1.12rem;
-  margin-bottom: 1.12rem;
+  margin-top: 1.6rem;
+  margin-bottom: 1.6rem;
   color: #424B59;
   font-size: 21px;
-  line-height:2.7rem;
+  line-height:3.2rem;
 }
 
 h4 {
-  margin-top: 1.12rem;
-  margin-bottom: 1.12rem;
+  margin-top: 1.6rem;
+  margin-bottom: 1.6rem;
   color: #424B59;
   font-size: 18px;
-  line-height:2.7rem;
+  line-height:3.2rem;
 }
 
 h5, h6 {
-  margin-top: 1.12rem;
-  margin-bottom: 1.12rem;
+  margin-top: 1.6rem;
+  margin-bottom: 1.6rem;
   font-weight: bold;
-  line-height:2.7rem;
+  line-height:3.2rem;
 }
 
 
 p {
   margin-top: 0;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.6rem;
   font-size: 16px;
   color: gray;
-  line-height:2.7rem;
+  line-height:3.2rem;
 }
 
 .well {
-  padding: 30px;
-  margin-top: 30px;
-  margin-bottom: 30px;
+  padding: 32px;
+  margin-top: 32px;
+  margin-bottom: 32px;
   background-color: var(--pink-color);
   border: none;
-  box-shadow: inset 0px 2.25px 0px rgb(255 126 255 / 10%);
+  box-shadow: inset 0px 2.24px 0px rgb(255 126 255 / 10%);
 }
 
 .glyphicon {
   font-size: 30px;
   color: cornflowerblue;
   display:inline;
-  margin-left: 3rem;
+  margin-left: 3.2rem;
   
 }
 
@@ -104,62 +105,62 @@ p {
   -moz-user-select: none;
   -ms-user-select: none;
   user-select: none;
-  background-color: var(--pink-color-bold);
+  background-color: var(--pink-color-bold3);
   border: 0 solid transparent;
-  padding: 1.5rem 1.5rem;
-  line-height: 1.12rem;
+  padding: 1.6rem 1.6rem;
+  line-height: 1.6rem;
   border-radius: 4.5px;
   transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
-  margin-left: 1.5rem;
+  margin-left: 1.6rem;
   
 }
 
 .btn-secundary:hover {
-  background-color: var(--pink-color-bold5);
+  background-color: var(--pink-color-bold9);
 }
 
 .btn-primary {
   font-size: 13px;
   background-color:white;
   border-color:black;
-  border-radius:3.75px;
+  border-radius:3.6px;
   color:black;
   text-transform: uppercase;
-  padding:12px;
+  padding: 1.6rem 1.6rem;
   font-weight:bold;
-  margin:0.75rem;
+  margin:0.8rem;
   
 }
 
 .btn-primary:hover, .btn-primary:focus, .btn-primary:active, .btn-primary.active, .open>.dropdown-toggle.btn-primary {
     border-color: var(--pink-color);
-    background-color: var(--pink-color-bold5);
+    background-color: var(--pink-color-bold9);
     color:black;
 }
 
 .fa {
-  margin-right:1.5rem;
+  margin-right:1.6rem;
 }
 
 .fab {
-  margin-right:1.5rem;
+  margin-right:1.6rem;
 }
 
 .fa-envelope {
   font-size: 21px;
   margin-left: 4.5rem;
-  margin-right: -0.75rem;
+  margin-right: -0.8rem;
   color: var(--pink-color-bold9);
 }
 
 .fa-youtube {
-  margin-right: 0.75rem;
+  margin-right: 0.8rem;
   font-size: 11px;
   color: gray;
 }
 
 .fa-music {
-  margin-right: 0.75rem;
+  margin-right: 0.8rem;
   font-size: 13px;
   color: gray;
 }
@@ -240,9 +241,14 @@ p {
 }
 
 .navbar .container-fluid {
-  padding-left: 30px;
+  padding-left: 32px;
 }
 
 .p_with_href {
-  margin-bottom: 1.5em;
+  margin-bottom: 1.6em;
+}
+
+
+a {
+  color: var(--pink-color-bold9);
 }
