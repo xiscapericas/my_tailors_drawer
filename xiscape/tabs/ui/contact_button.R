@@ -9,7 +9,7 @@ contact_button <- tags$div(class = 'contact_buttons_div',
                   fluidRow(
                     h2('Say hi!', style='display:inline;'), 
                     icon(name = 'envelope'), 
-                    tags$a(href = "mailto: abc@example.com", h4('mfpericas@gmail.com', style = 'display:inline;margin-left:2rem;'))
+                    tags$a(href = "mailto: mfpericas@gmail.com", h4('mfpericas@gmail.com', style = 'display:inline;margin-left:2rem;'))
                   )
            ), 
            column(width = 6, align = 'right', 
