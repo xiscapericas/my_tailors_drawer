@@ -41,16 +41,21 @@ projects <- tabPanel(
                                 p('#R', class = 'hashtag'), 
                                 p('#Shiny', class = 'hashtag')
                               )
-                              
                             ), 
                             fluidRow(
                               column(width = 12, align = 'right', 
+                                     ## Button check it out 
+                                     actionButton("button_project_xisca_shiny", 
+                                                  "View presentation", 
+                                                  icon(name = 'youtube'), 
+                                                  class = 'btn-secundary', 
+                                                  onclick ="window.open('https://youtu.be/3vdtU6fZG5o', '_blank')"), 
                                      actionButton("button_project_xiscashiny", 
                                                   "View Project", class = 'btn-secundary',
                                                   onclick ="window.open('https://github.com/xiscapericas/my_tailors_drawer/tree/main/xiscape', '_blank')"
                                                   
                                      )
-                                     )
+                              )
                             )
                           ),
                           

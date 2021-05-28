@@ -49,7 +49,7 @@ outliers <- tabPanel(
                                                 "Check Blog", 
                                                 icon('book'), 
                                                 class = 'btn-secundary', 
-                                                onclick ="window.open('window.open('https://mfpericas.wixsite.com/mientrasleiamos', '_blank')"
+                                                onclick ="window.open('https://mfpericas.wixsite.com/mientrasleiamos', '_blank')"
                                                 
                                    )
                             )
@@ -78,7 +78,7 @@ outliers <- tabPanel(
                                                 onclick ="window.open('https://www.youtube.com/channel/UCgLuX7RyR3ZqhkvgLB9IJew', '_blank')"), 
                                    actionButton("button_project_hiimxis_musescore", 
                                                 "Check scores",  icon('music'), class = 'btn-secundary', 
-                                                onclick ="window.open('window.open('https://musescore.com/user/37860943?share=copy_link', '_blank')")
+                                                onclick ="window.open('https://musescore.com/user/37860943?share=copy_link', '_blank')")
                                   )
                             )
                         ), # end well panel 
