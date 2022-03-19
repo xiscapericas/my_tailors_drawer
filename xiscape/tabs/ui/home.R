@@ -63,9 +63,9 @@ home <- tabPanel(
                         width = 12, align = 'left', 
                         column(width = 11, 
                                h2("Hola a todos, "),
-                               h2("Aquí os comparto mi último Book-Review: Momo"), 
+                               h2("Aquí os comparto mi último Book-Review: El nombre del mundo es bosque"), 
                                br(), 
-                               p("Existe una cosa muy misteriosa, pero muy cotidiana. [...] Casi todos se limitan a tomarla como viene, sin hacer preguntas. Esta cosa es el tiempo", style = 'font-style:italic')
+                               p("-¿Sois del tiempo del sueño o del tiempo del mundo?- le preguntó el viejo al final. -Del tiempo del mundo.", style = 'font-style:italic')
                         ), 
                         column(width = 1), 
                         fluidRow(
@@ -74,7 +74,7 @@ home <- tabPanel(
                                  ## Button check it out 
                                  actionButton("button_check_it_out_xisca_shiny_2", 
                                               "Leelo aquí", class = 'btn-secundary',
-                                              onclick ="window.open('https://mfpericas.wixsite.com/mientrasleiamos/post/momo-y-la-cuesti%C3%B3n-del-tiempo', '_blank')"
+                                              onclick ="window.open('https://mfpericas.wixsite.com/mientrasleiamos/post/de-lo-que-debiera-ser-el-nombre-del-mundo', '_blank')"
                                  )
                           )
                         )
