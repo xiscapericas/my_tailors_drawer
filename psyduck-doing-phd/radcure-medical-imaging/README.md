@@ -225,9 +225,9 @@ If you use this package in your research, please cite:
 ```bibtex
 @software{radcure_processor,
   title = {RADCURE Medical Imaging Processor},
-  author = {Your Name},
-  year = {2024},
-  url = {https://github.com/yourusername/radcure-medical-imaging}
+  author = {Xisca Pericàs},
+  year = {2025},
+  url = {https://github.com/xiscapericas/my_tailors_drawer/tree/main/psyduck-doing-phd/radcure-medical-imaging}
 }
 ```
 
@@ -242,7 +242,7 @@ For issues and questions, please open an issue on GitHub.
 
 ## Author
 
-[Your Name]
+Xisca Pericàs
 
 ---
 
