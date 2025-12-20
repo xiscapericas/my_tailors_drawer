@@ -323,3 +323,81 @@ class CaseProcessor:
                     with open(failed_cases_file, "a") as logf:
                         logf.write(radcure_case_id + "\n")
 
+    def download_and_visualize_case(
+        self,
+        radcure_case_id: str,
+        slice_indices: Optional[List[int]] = None,
+        save_path: Optional[str] = None,
+        show: bool = True
+    ) -> Dict[str, str]:
+        """
+        Download a RADCURE case and visualize the DICOM CT directly.
+        
+        Parameters
+        ----------
+        radcure_case_id : str
+            Case ID (e.g., 'RADCURE-0005')
+        slice_indices : List[int], optional
+            Specific slice indices to visualize. If None, shows slices at 25%, 50%, 75%
+        save_path : str, optional
+            Path to save the visualization image
+        show : bool
+            If True, displays the figure interactively
+        
+        Returns
+        -------
+        Dict[str, str]
+            Dictionary with paths to downloaded files and visualization
+        """
+        print(f'Downloading and visualizing {radcure_case_id}')
+        
+        local_folder = os.path.join(self.main_path_retrain, radcure_case_id)
+        radcure_case_id_zip = radcure_case_id + '.zip'
+        zip_path = os.path.join(self.main_path_retrain, radcure_case_id_zip)
+        
+        try:
+            # Step 1: Download zip
+            print('Step 1: Downloading zip')
+            if not os.path.exists(zip_path):
+                self.aws_handler.download_case(
+                    radcure_case_id,
+                    self.main_path_retrain
+                )
+            
+            # Step 2: Unzip
+            print('Step 2: Unzipping')
+            if not os.path.exists(local_folder):
+                self.file_handler.unzip_file(zip_path, local_folder)
+            
+            # Step 3: Get DICOM paths
+            print('Step 3: Getting DICOM paths')
+            dicom_folder_path = self.file_handler.get_dicom_path(
+                local_folder, radcure_case_id
+            )
+            ct_mask_paths = self.file_handler.get_ct_and_mask_paths(dicom_folder_path)
+            dicom_folder_ct_path = ct_mask_paths['ct_path']
+            
+            # Step 4: Visualize DICOM
+            print('Step 4: Visualizing DICOM')
+            if save_path is None:
+                save_path = os.path.join(local_folder, f'{radcure_case_id}_dicom_preview.png')
+            
+            ct_volume = self.visualizer.visualize_dicom_series(
+                dicom_folder_ct_path,
+                slice_indices=slice_indices,
+                save_path=save_path,
+                show=show
+            )
+            
+            return {
+                'case_folder': local_folder,
+                'zip_path': zip_path,
+                'dicom_ct_path': dicom_folder_ct_path,
+                'visualization_path': save_path,
+                'status': 'success'
+            }
+            
+        except Exception as e:
+            print(f'Error downloading/visualizing {radcure_case_id}: {e}')
+            raise
+
