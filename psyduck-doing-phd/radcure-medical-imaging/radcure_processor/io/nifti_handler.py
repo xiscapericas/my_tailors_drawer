@@ -148,4 +148,73 @@ class NIfTIHandler:
         print(f'Image saved in: {output_path}')
         
         return output_path
+    
+    @staticmethod
+    def save_and_align_mask_with_ct(
+        mask_array: np.ndarray,
+        nifti_ct_path: str,
+        output_path: str
+    ) -> str:
+        """
+        Save mask as NIfTI and align it with CT geometry.
+        
+        This function saves the mask, applies rotation and flip transformations,
+        and aligns it with the CT image geometry for proper registration.
+        
+        Parameters
+        ----------
+        mask_array : np.ndarray
+            3D mask array (height, width, slices)
+        nifti_ct_path : str
+            Path to NIfTI CT file to align with
+        output_path : str
+            Path to save the aligned mask NIfTI file
+        
+        Returns
+        -------
+        str
+            Path to saved aligned mask file
+        """
+        import SimpleITK as sitk
+        import nibabel as nib
+        
+        # Step 1: Save mask as NIfTI with identity affine
+        affine = np.eye(4)
+        mask_nii = nib.Nifti1Image(mask_array.astype(np.uint8), affine)
+        nib.save(mask_nii, output_path)
+        
+        # Step 2: Read images
+        ct = sitk.ReadImage(nifti_ct_path)
+        msk = sitk.ReadImage(output_path)
+        
+        # Step 3: Get mask as numpy array (SimpleITK uses (z, y, x))
+        msk_arr = sitk.GetArrayFromImage(msk).astype(np.uint8)
+        
+        # Step 4: Apply transformations:
+        #    - rotate 270 degrees in-plane (y,x) => k=3
+        #    - flip x
+        msk_arr = np.rot90(msk_arr, k=3, axes=(1, 2))   # rotate each slice
+        msk_arr = msk_arr[:, :, ::-1]                   # flip x
+        
+        # Step 5: Convert back to SimpleITK image and copy CT geometry
+        msk_aligned = sitk.GetImageFromArray(msk_arr)
+        msk_aligned.CopyInformation(ct)                 # sets spacing/origin/direction correctly
+        msk_aligned = sitk.Cast(msk_aligned, sitk.sitkUInt8)
+        
+        # Step 6: Resample to CT grid (nearest-neighbor)
+        #    This guarantees identical grid even if something is slightly off.
+        msk_aligned = sitk.Resample(
+            msk_aligned,
+            ct,
+            sitk.Transform(),
+            sitk.sitkNearestNeighbor,
+            0,
+            msk_aligned.GetPixelID()
+        )
+        
+        # Step 7: Save final aligned mask
+        sitk.WriteImage(msk_aligned, output_path)
+        print(f"Saved aligned mask: {output_path}")
+        
+        return output_path
 

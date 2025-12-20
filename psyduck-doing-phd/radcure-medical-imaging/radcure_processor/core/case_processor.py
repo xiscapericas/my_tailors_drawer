@@ -179,6 +179,15 @@ class CaseProcessor:
                     f'{len(non_zero_tumor_mask_expanded)} mask slices'
                 )
             
+            # Step 5b: Save and align tumor mask with CT
+            print('Step 5b: Saving and aligning tumor mask with CT')
+            mask_nifti_path = os.path.join(local_folder, f'{radcure_case_id}_tumor_mask_aligned.nii.gz')
+            self.nifti_handler.save_and_align_mask_with_ct(
+                contours,
+                nifti_output_path,
+                mask_nifti_path
+            )
+            
             # Step 6: Run TotalSegmentator
             print('Step 6: Running TotalSegmentator')
             total_segmentator_output = self.segmentator.run_tasks(
@@ -206,7 +215,7 @@ class CaseProcessor:
             # Step 9: Add tumor to mask
             print('Step 9: Adding tumor to mask')
             combined_mask_array_tumor = self.mask_generator.update_combined_mask_with_tumor(
-                contours,
+                mask_nifti_path,
                 non_zero_tumor_mask_expanded,
                 combined_mask_array
             )

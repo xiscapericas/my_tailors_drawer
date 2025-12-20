@@ -178,17 +178,17 @@ class MaskGenerator:
     
     def update_combined_mask_with_tumor(
         self,
-        tumor_contours: np.ndarray,
+        tumor_mask_nifti_path: str,
         slices_to_use: List[int],
         combined_mask_array: List[np.ndarray]
     ) -> List[np.ndarray]:
         """
-        Update combined mask with tumor (GTVp) annotations.
+        Update combined mask with tumor (GTVp) annotations from aligned NIfTI mask.
         
         Parameters
         ----------
-        tumor_contours : np.ndarray
-            3D tumor mask array
+        tumor_mask_nifti_path : str
+            Path to aligned tumor mask NIfTI file
         slices_to_use : List[int]
             List of slice indices
         combined_mask_array : List[np.ndarray]
@@ -202,14 +202,18 @@ class MaskGenerator:
         # Ensure tumor index exists
         tumor_value = self.organ_dictionary.add_tumor_index()
         
+        # Load aligned tumor mask from NIfTI
+        tumor_mask_vol = NIfTIHandler.load_nii_mask(tumor_mask_nifti_path)
+        
         # Get tumor masks for slices of interest
-        tumor_masks = tumor_contours[:, :, slices_to_use]
+        # The mask is already aligned with CT, so we can use it directly
+        tumor_masks = tumor_mask_vol[:, :, slices_to_use]
         
         print(f'Using index {tumor_value} for tumor')
         for ind in range(len(combined_mask_array)):
             combined_mask = combined_mask_array[ind]
-            # Rotate tumor mask to match orientation
-            tumor_mask = np.rot90(tumor_masks[:, :, ind], k=1)
+            # Mask is already aligned, use directly
+            tumor_mask = tumor_masks[:, :, ind]
             combined_mask[tumor_mask == 1] = tumor_value
             combined_mask_array[ind] = combined_mask
         

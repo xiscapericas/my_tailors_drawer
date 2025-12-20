@@ -153,3 +153,42 @@ class FileHandler:
             shutil.rmtree(case_folder)
             print(f"Deleted folder: {case_folder}")
 
+    @staticmethod
+    def get_dicom_mask_file_path(mask_folder_path: str, mask_filename: Optional[str] = None) -> str:
+        """
+        Get the full path to the DICOM mask file (RTSTRUCT).
+        
+        Parameters
+        ----------
+        mask_folder_path : str
+            Path to the mask folder containing the RTSTRUCT file
+        mask_filename : str, optional
+            Specific mask filename (e.g., '1-1.dcm'). If None, finds the first .dcm file.
+        
+        Returns
+        -------
+        str
+            Full path to the DICOM mask file
+        """
+        if mask_filename:
+            mask_file_path = os.path.join(mask_folder_path, mask_filename)
+            if not os.path.exists(mask_file_path):
+                raise FileNotFoundError(f"Mask file not found: {mask_file_path}")
+            return mask_file_path
+        
+        # Find the first .dcm file in the mask folder
+        files = [f for f in os.listdir(mask_folder_path) if not f.startswith(".")]
+        dcm_files = [f for f in files if f.lower().endswith('.dcm')]
+        
+        if not dcm_files:
+            raise FileNotFoundError(f"No DICOM file found in {mask_folder_path}")
+        
+        # If there's a file named '1-1.dcm', prefer it, otherwise use the first one
+        preferred_file = '1-1.dcm'
+        if preferred_file in dcm_files:
+            mask_file_path = os.path.join(mask_folder_path, preferred_file)
+        else:
+            mask_file_path = os.path.join(mask_folder_path, dcm_files[0])
+        
+        return mask_file_path
+

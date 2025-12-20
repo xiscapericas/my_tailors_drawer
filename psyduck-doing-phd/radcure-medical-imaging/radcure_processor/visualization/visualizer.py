@@ -156,7 +156,8 @@ class MedicalImageVisualizer:
         path_mask: str,
         axis: int = 2,
         save_pdf_path: Optional[str] = None,
-        show: bool = True
+        show: bool = True,
+        slice_indices: Optional[List[int]] = None
     ) -> None:
         """
         Visualize two NIfTI volumes slice-by-slice with 3 panels:
@@ -174,6 +175,8 @@ class MedicalImageVisualizer:
             If provided, saves all slice figures into one PDF
         show : bool
             If True, displays figures interactively
+        slice_indices : List[int], optional
+            Specific slice indices to visualize. If None, shows all slices.
         """
         img_vol = NIfTIHandler.load_nii_image(path_image)
         mask_vol = NIfTIHandler.load_nii_mask(path_mask)
@@ -185,6 +188,16 @@ class MedicalImageVisualizer:
                   img_vol.shape, mask_vol.shape)
         
         num_slices = min(img_vol.shape[axis], mask_vol.shape[axis])
+        
+        # Determine which slices to show
+        if slice_indices is None:
+            slices_to_show = list(range(num_slices))
+        else:
+            # Filter slice indices to valid range
+            slices_to_show = [idx for idx in slice_indices if 0 <= idx < num_slices]
+            if len(slices_to_show) != len(slice_indices):
+                invalid = [idx for idx in slice_indices if idx not in slices_to_show]
+                print(f"⚠️ Warning: Invalid slice indices {invalid} (valid range: 0-{num_slices-1})")
         
         def get_slice(vol, idx, axis):
             if axis == 0:
@@ -200,7 +213,7 @@ class MedicalImageVisualizer:
         pdf = PdfPages(save_pdf_path) if save_pdf_path else None
         
         try:
-            for slice_idx in range(num_slices):
+            for slice_idx in slices_to_show:
                 img_slice = get_slice(img_vol, slice_idx, axis)
                 mask_slice = get_slice(mask_vol, slice_idx, axis)
                 
