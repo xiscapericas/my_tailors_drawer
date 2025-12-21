@@ -11,9 +11,10 @@ This package provides a structured, class-based approach to processing medical i
 - 🔄 **Complete Pipeline**: End-to-end processing from AWS S3 to NIfTI outputs
 - 🏗️ **Modular Design**: Class-based architecture for easy extension and maintenance
 - 🧠 **TotalSegmentator Integration**: Automated organ segmentation
-- 🎯 **Tumor Detection**: Specialized handling for GTVp (tumor) annotations
-- 📊 **Visualization**: Automatic PDF generation for quality control
+- 🎯 **Tumor Detection**: Specialized handling for GTVp (tumor) annotations with automatic alignment
+- 📊 **Visualization**: Automatic PDF generation and DICOM visualization tools
 - 🔐 **Secure**: Environment variable support for AWS credentials
+- 📦 **Dataset Preparation**: Scripts for splitting processed cases into train/val/test sets
 
 ## Installation
 
@@ -87,11 +88,36 @@ processor.process_multiple_cases(
 )
 ```
 
-### 3. Run Example Script
+### 3. Process All Cases
+
+For production use, run the dedicated script to process all cases:
 
 ```bash
-python example_usage.py
+python process_all_cases.py
 ```
+
+This script will:
+- Process all available cases from AWS S3
+- Log successful cases to `processed_cases.txt`
+- Log failed cases with error messages to `processed_cases_failed.txt`
+- Handle interruptions gracefully
+- Provide progress updates and final statistics
+
+### 4. Split Dataset for Training
+
+After processing all cases, split them into train/validation/test sets:
+
+```bash
+python split_dataset.py \
+    --main_path /path/to/your/dataset/ \
+    --output_path /path/to/split/output/
+```
+
+This creates a `DatasetXXX_TotalSegmentator` folder with:
+- `imagesTr`, `imagesTs`, `imagesVa` (CT images)
+- `labelsTr`, `labelsTs`, `labelsVa` (masks)
+
+See [Dataset Splitting](#dataset-splitting) section for more details.
 
 ## Package Structure
 
@@ -135,13 +161,35 @@ processor = CaseProcessor(
 You can also use components independently:
 
 ```python
-from radcure_processor.io import AWSHandler, FileHandler
+from radcure_processor.io import AWSHandler, FileHandler, NIfTIHandler
 from radcure_processor.core import DICOMHandler, TotalSegmentatorWrapper
-from radcure_processor.utils import OrganDictionary
+from radcure_processor.utils import OrganDictionary, ImageProcessor
+from radcure_processor.visualization import MedicalImageVisualizer
 
-# Use individual components as needed
+# Download a case
 aws_handler = AWSHandler(bucket_name='bucket', aws_folder='folder/')
-cases = aws_handler.list_cases()
+aws_handler.download_case('RADCURE-0005', '/local/path')
+
+# Get DICOM paths
+file_handler = FileHandler()
+dicom_path = file_handler.get_dicom_path('/local/path', 'RADCURE-0005')
+ct_mask_paths = file_handler.get_ct_and_mask_paths(dicom_path)
+mask_file_path = file_handler.get_dicom_mask_file_path(ct_mask_paths['mask_path'])
+
+# Load mask
+dicom_handler = DICOMHandler()
+mask = dicom_handler.load_tumor_mask(ct_mask_paths['ct_path'], ct_mask_paths['mask_path'])
+
+# Get non-zero slices
+non_zero_slices = ImageProcessor.get_non_zero_slices(mask)
+
+# Align and save mask
+nifti_handler = NIfTIHandler()
+nifti_handler.save_and_align_mask_with_ct(
+    mask,
+    'ct.nii.gz',
+    'mask_aligned.nii.gz'
+)
 ```
 
 ## Configuration Options
@@ -165,15 +213,18 @@ For each processed case, the following structure is created:
 ```
 TotalSegmentatorRetrain/
 └── RADCURE-XXXX/
-    ├── RADCURE-XXXX.nii.gz          # Converted CT
-    ├── total_segmentator_output/     # TotalSegmentator outputs
+    ├── RADCURE-XXXX.nii.gz                    # Converted CT
+    ├── RADCURE-XXXX_tumor_mask_aligned.nii.gz # Aligned tumor mask
+    ├── total_segmentator_output/               # TotalSegmentator outputs
     └── output/
         ├── image/
-        │   └── case_XXXX_0000.nii.gz # CT slices
+        │   └── case_XXXX_0000.nii.gz          # CT slices
         ├── labels/
-        │   └── case_XXXX_0000.nii.gz # Combined masks
-        └── RADCURE-XXXX.pdf          # Visualization PDF
+        │   └── case_XXXX_0000.nii.gz          # Combined masks
+        └── RADCURE-XXXX.pdf                    # Visualization PDF
 ```
+
+**Note**: The tumor mask is automatically aligned with the CT geometry before combining with TotalSegmentator results to ensure proper registration.
 
 ## TotalSegmentator Tasks
 
@@ -188,6 +239,105 @@ The package supports various TotalSegmentator tasks. Default tasks include:
 
 See [TotalSegmentator documentation](https://github.com/wasserth/TotalSegmentator) for all available tasks.
 
+## Visualization
+
+The package includes several visualization utilities:
+
+### Visualize DICOM Series Directly
+
+```python
+from radcure_processor.visualization import MedicalImageVisualizer
+
+visualizer = MedicalImageVisualizer()
+
+# Visualize DICOM CT from folder
+ct_array = visualizer.visualize_dicom_series(
+    dicom_folder_path='/path/to/dicom/folder',
+    slice_indices=[50, 100, 150],  # Optional: specific slices
+    save_path='preview.png',
+    show=True
+)
+```
+
+### Download and Visualize a Case
+
+```python
+from radcure_processor import CaseProcessor
+
+processor = CaseProcessor(...)
+
+# Download and visualize a case
+result = processor.download_and_visualize_case(
+    'RADCURE-0005',
+    slice_indices=[50, 100, 150],
+    save_path='preview.png',
+    show=True
+)
+```
+
+### Visualize NIfTI Files with Masks
+
+```python
+# Visualize CT and mask side by side
+visualizer.show_two_niis_side_by_side(
+    path_image='ct.nii.gz',
+    path_mask='mask.nii.gz',
+    axis=2,  # axial slices
+    slice_indices=[50, 100, 150],  # Optional: specific slices
+    save_pdf_path='visualization.pdf',
+    show=True
+)
+```
+
+## Dataset Splitting
+
+After processing all cases, use `split_dataset.py` to prepare data for training:
+
+### Basic Usage
+
+```bash
+python split_dataset.py \
+    --main_path /path/to/dataset/ \
+    --output_path /path/to/split/output/
+```
+
+### Options
+
+- `--main_path`: Path containing `TotalSegmentatorRetrain` folder (required)
+- `--output_path`: Where to create the split folders (required)
+- `--train_test_split`: Train/Test ratio (default: 0.8)
+- `--train_val_split`: Train/Val ratio within train (default: 0.8)
+- `--random_seed`: Random seed for reproducibility (default: 42)
+- `--copy`: Copy files instead of moving them
+- `--dry_run`: Preview without moving files
+
+### Output Structure
+
+The script creates a `DatasetXXX_TotalSegmentator` folder (where XXX is the total number of cases) with:
+
+```
+DatasetXXX_TotalSegmentator/
+├── imagesTr/    # Training images (~64%)
+├── imagesTs/    # Test images (~20%)
+├── imagesVa/    # Validation images (~16%)
+├── labelsTr/    # Training labels
+├── labelsTs/    # Test labels
+└── labelsVa/    # Validation labels
+```
+
+The split is: 80% Train/Test, then 80/20 Train/Val within the training set.
+
+## Error Handling
+
+Failed cases are logged to `processed_cases_failed.txt` with both the case ID and error message:
+
+```
+RADCURE-1330: GTVp structure not found in RTSTRUCT file
+RADCURE-1450: No DICOM series found in folder
+```
+
+This makes it easy to identify and troubleshoot problematic cases.
+
 ## Dependencies
 
 - `boto3` - AWS S3 operations
@@ -201,6 +351,35 @@ See [TotalSegmentator documentation](https://github.com/wasserth/TotalSegmentato
 - `scikit-image`, `scipy` - Image processing
 - `opencv-python` - Computer vision
 - `python-dotenv` - Environment variable management
+
+## Workflow
+
+### Complete Processing Workflow
+
+1. **Set up environment**:
+   ```bash
+   cp env.example .env
+   # Edit .env with your credentials
+   ```
+
+2. **Process all cases**:
+   ```bash
+   python process_all_cases.py
+   ```
+
+3. **Review failed cases** (if any):
+   ```bash
+   cat processed_cases_failed.txt
+   ```
+
+4. **Split dataset for training**:
+   ```bash
+   python split_dataset.py \
+       --main_path /path/to/dataset/ \
+       --output_path /path/to/split/output/
+   ```
+
+5. **Use the split dataset** for TotalSegmentator retraining
 
 ## Security
 
