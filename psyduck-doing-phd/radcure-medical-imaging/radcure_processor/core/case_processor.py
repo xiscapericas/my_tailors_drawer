@@ -327,10 +327,11 @@ class CaseProcessor:
                         logf.write(radcure_case_id + "\n")
                 print(f"✓ Successfully processed: {radcure_case_id}")
             except Exception as e:
-                print(f"✗ Failed to process {radcure_case_id}: {e}")
+                error_message = str(e)
+                print(f"✗ Failed to process {radcure_case_id}: {error_message}")
                 if failed_cases_file:
                     with open(failed_cases_file, "a") as logf:
-                        logf.write(radcure_case_id + "\n")
+                        logf.write(f"{radcure_case_id}: {error_message}\n")
 
     def download_and_visualize_case(
         self,
