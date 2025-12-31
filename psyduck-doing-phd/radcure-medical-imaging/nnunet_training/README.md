@@ -23,21 +23,24 @@ nnunet_training/
 
 2. **Set up environment variables**:
    ```bash
-   cp nnunet_training.env.example .env
+   cp env.example .env
    # Edit .env with your paths
    ```
+   
+   **Note**: Use the main `env.example` file which includes both processing and training variables.
+   If you already have a `.env` file for processing, just add the nnUNet training variables to it.
 
-   Required variables:
+   Required variables for training:
    - `DATASET_FOLDER`: Path to your `DatasetXXX_TotalSegmentator` folder
    - `ORGAN_DICTIONARY_PATH`: Path to `radcure_dictionary.json` (from radcure_processor)
 
    Optional variables:
-   - `NNUNET_PATH`: Path to nnUNet installation
-   - `NNUNET_RETRAIN_PATH`: Base path for nnUNet folders
+   - `NNUNET_PATH`: Path to nnUNet installation (optional, has default)
+   - `NNUNET_RETRAIN_PATH`: Base path for nnUNet folders (optional, has default)
    - `NNUNET_CONFIGURATION`: Model configuration (default: `3d_fullres`)
    - `NNUNET_TRAINER`: Trainer class (default: `nnUNetTrainerNoMirroring`)
    - `NNUNET_FOLD`: Fold to train (default: `0`)
-   - And more... (see `nnunet_training.env.example`)
+   - And more... (see `env.example` in project root for complete list)
 
 ## Usage
 

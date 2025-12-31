@@ -374,15 +374,17 @@ After processing and splitting your dataset, you can train an nnUNet model using
 
 2. **Configure environment variables**:
    ```bash
-   cp nnunet_training.env.example .env
+   cp env.example .env
    # Edit .env with your paths
    ```
+   
+   **Note**: If you already have a `.env` file from processing, just add the nnUNet training variables to it.
 
-   Required variables:
+   Required variables for training:
    - `DATASET_FOLDER`: Path to your `DatasetXXX_TotalSegmentator` folder
-   - `ORGAN_DICTIONARY_PATH`: Path to `radcure_dictionary.json`
+   - `ORGAN_DICTIONARY_PATH`: Path to `radcure_dictionary.json` (already set if you processed cases)
 
-   Optional variables (see `nnunet_training.env.example` for all options):
+   Optional variables (see `env.example` for all options):
    - `NNUNET_PATH`: Path to nnUNet installation
    - `NNUNET_RETRAIN_PATH`: Base path for nnUNet folders
    - `NNUNET_CONFIGURATION`: Model configuration (default: `3d_fullres`)
@@ -463,9 +465,10 @@ For more details, see `nnunet_training/README.md`.
 
 5. **Train nnUNet model**:
    ```bash
-   # Configure nnUNet training environment
-   cp nnunet_training.env.example .env
-   # Edit .env with nnUNet paths
+   # Add nnUNet training variables to your existing .env file
+   # (or edit .env if you haven't set it up yet)
+   # Required: DATASET_FOLDER, ORGAN_DICTIONARY_PATH
+   # See env.example for all available options
    
    # Run training pipeline
    python train_nnunet.py --step all
