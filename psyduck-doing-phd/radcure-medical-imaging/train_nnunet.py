@@ -3,11 +3,13 @@ Main script for nnUNet training pipeline.
 
 This script orchestrates the complete training workflow:
 1. Prepare dataset
-2. Train model
-3. Predict and evaluate
+2. Plan and preprocess
+3. Train model
+4. Predict and evaluate
 
 Usage:
     python train_nnunet.py --step prepare
+    python train_nnunet.py --step plan
     python train_nnunet.py --step train
     python train_nnunet.py --step evaluate
     python train_nnunet.py --step all  # Run all steps
@@ -35,9 +37,9 @@ def main():
     parser.add_argument(
         '--step',
         type=str,
-        choices=['prepare', 'train', 'evaluate', 'all'],
+        choices=['prepare', 'plan', 'train', 'evaluate', 'all'],
         required=True,
-        help='Which step to run: prepare, train, evaluate, or all'
+        help='Which step to run: prepare, plan, train, evaluate, or all'
     )
     
     args = parser.parse_args()
@@ -72,18 +74,28 @@ def main():
             sys.exit(1)
         print()
     
-    if args.step == 'train' or args.step == 'all':
-        print(">>> STEP 2: Training Model")
+    if args.step == 'plan' or args.step == 'all':
+        print(">>> STEP 2: Planning and Preprocessing")
         print("-" * 70)
         try:
-            train_model.main()
+            train_model.main_plan()
+        except Exception as e:
+            print(f"✗ Planning and preprocessing failed: {e}")
+            sys.exit(1)
+        print()
+    
+    if args.step == 'train' or args.step == 'all':
+        print(">>> STEP 3: Training Model")
+        print("-" * 70)
+        try:
+            train_model.main_train()
         except Exception as e:
             print(f"✗ Training failed: {e}")
             sys.exit(1)
         print()
     
     if args.step == 'evaluate' or args.step == 'all':
-        print(">>> STEP 3: Prediction and Evaluation")
+        print(">>> STEP 4: Prediction and Evaluation")
         print("-" * 70)
         try:
             predict_and_evaluate.main()

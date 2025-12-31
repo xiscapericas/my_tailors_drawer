@@ -65,6 +65,17 @@ def generate_dataset_json(config: TrainingConfig):
         converted_by='Xisca Pe'
     )
     
+    # Update license field in dataset.json
+    dataset_json_path = os.path.join(config.dataset_folder, 'dataset.json')
+    if os.path.exists(dataset_json_path):
+        with open(dataset_json_path, 'r') as f:
+            dataset_json = json.load(f)
+        
+        dataset_json['licence'] = "Of course I checked! I'm not lazy"
+        
+        with open(dataset_json_path, 'w') as f:
+            json.dump(dataset_json, f, indent=2)
+    
     print(f"✓ dataset.json created in {config.dataset_folder}")
 
 

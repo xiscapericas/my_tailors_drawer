@@ -62,16 +62,25 @@ This will:
 - Create dataset ID to name mapping
 - Optionally copy dataset to nnUNet_raw folder
 
-**2. Train model:**
+**2. Plan and preprocess:**
+```bash
+python train_nnunet.py --step plan
+```
+
+This will:
+- Plan the dataset
+- Preprocess the data for training
+
+**3. Train model:**
 ```bash
 python train_nnunet.py --step train
 ```
 
 This will:
-- Plan and preprocess the dataset
 - Train the model
+- Note: Requires planning and preprocessing to be completed first
 
-**3. Evaluate model:**
+**4. Evaluate model:**
 ```bash
 python train_nnunet.py --step evaluate
 ```

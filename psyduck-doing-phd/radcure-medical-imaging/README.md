@@ -407,14 +407,21 @@ python train_nnunet.py --step all
    - Creates dataset ID to name mapping
    - Optionally copies dataset to nnUNet_raw folder
 
-2. **Train model**:
+2. **Plan and preprocess**:
+   ```bash
+   python train_nnunet.py --step plan
+   ```
+   - Plans the dataset
+   - Preprocesses the data for training
+
+3. **Train model**:
    ```bash
    python train_nnunet.py --step train
    ```
-   - Plans and preprocesses the dataset
    - Trains the model
+   - Note: Requires planning and preprocessing to be completed first
 
-3. **Evaluate model**:
+4. **Evaluate model**:
    ```bash
    python train_nnunet.py --step evaluate
    ```
@@ -470,8 +477,14 @@ For more details, see `nnunet_training/README.md`.
    # Required: DATASET_FOLDER, ORGAN_DICTIONARY_PATH
    # See env.example for all available options
    
-   # Run training pipeline
+   # Run training pipeline (all steps)
    python train_nnunet.py --step all
+   
+   # Or run individual steps:
+   python train_nnunet.py --step prepare  # Prepare dataset
+   python train_nnunet.py --step plan      # Plan and preprocess
+   python train_nnunet.py --step train    # Train model
+   python train_nnunet.py --step evaluate # Evaluate model
    ```
 
 ## Security

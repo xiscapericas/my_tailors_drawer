@@ -120,10 +120,59 @@ def train_model(config: TrainingConfig, log_file: str = None):
         raise RuntimeError(f"Training failed. Check {log_file} for details.")
 
 
-def main():
+def main_plan():
+    """Main function for planning and preprocessing."""
+    print("=" * 70)
+    print("nnUNet Planning and Preprocessing")
+    print("=" * 70)
+    
+    # Load configuration
+    config = TrainingConfig()
+    
+    # Add nnUNet to path
+    add_nnunet_to_path(config.nnunet_path)
+    
+    # Setup environment
+    config.setup_nnunet_environment()
+    
+    # Plan and preprocess
+    plan_and_preprocess(config)
+    
+    print("\n" + "=" * 70)
+    print("Planning and preprocessing complete!")
+    print("=" * 70)
+    print("\nNext step: Run train_nnunet.py --step train to start training")
+
+
+def main_train():
     """Main function for model training."""
     print("=" * 70)
     print("nnUNet Model Training")
+    print("=" * 70)
+    
+    # Load configuration
+    config = TrainingConfig()
+    
+    # Add nnUNet to path
+    add_nnunet_to_path(config.nnunet_path)
+    
+    # Setup environment
+    config.setup_nnunet_environment()
+    
+    # Train model
+    train_model(config)
+    
+    print("\n" + "=" * 70)
+    print("Training complete!")
+    print("=" * 70)
+    print(f"Model saved in: {os.environ['nnUNet_results']}")
+    print("\nNext step: Run train_nnunet.py --step evaluate to evaluate the model")
+
+
+def main():
+    """Main function that runs both plan and train (for backward compatibility)."""
+    print("=" * 70)
+    print("nnUNet Model Training (Plan + Train)")
     print("=" * 70)
     
     # Load configuration
@@ -147,7 +196,7 @@ def main():
     print("Training complete!")
     print("=" * 70)
     print(f"Model saved in: {os.environ['nnUNet_results']}")
-    print("\nNext step: Run predict_and_evaluate.py to evaluate the model")
+    print("\nNext step: Run train_nnunet.py --step evaluate to evaluate the model")
 
 
 if __name__ == '__main__':
