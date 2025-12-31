@@ -5,7 +5,7 @@ This script:
 1. Finds all processed cases in the output directory
 2. Splits cases randomly: 80% Train/Test, then 80/20 Train/Val within Train
 3. Creates 6 folders: imagesTr, imagesTs, imagesVa, labelsTr, labelsTs, labelsVa
-4. Moves files from case output folders to the appropriate split folders
+4. Copies files from case output folders to the appropriate split folders
 """
 
 import os
@@ -132,15 +132,17 @@ def create_split_folders(output_path: str) -> dict:
     return folders
 
 
-def move_case_files(
+def copy_case_files(
     case_id: str,
     main_path: str,
     target_image_folder: str,
     target_label_folder: str,
-    copy_files: bool = False
+    move_files: bool = False
 ) -> bool:
     """
-    Move or copy case files to target folders.
+    Copy or move case files to target folders.
+    
+    By default, files are copied to preserve originals.
     
     Parameters
     ----------
@@ -152,8 +154,8 @@ def move_case_files(
         Target folder for image files
     target_label_folder : str
         Target folder for label files
-    copy_files : bool
-        If True, copy files instead of moving
+    move_files : bool
+        If True, move files instead of copying (default: False, copies files)
     
     Returns
     -------
@@ -179,18 +181,18 @@ def move_case_files(
         print(f"Warning: Case {case_id} has no files in output folders")
         return False
     
-    # Move/copy image file
+    # Copy/move image file
     # Images should have _0000 suffix (e.g., case_0006_0000.nii.gz)
     image_file = image_files[0]  # Should be only one file
     image_source_path = os.path.join(image_source, image_file)
     image_target_path = os.path.join(target_image_folder, image_file)
     
-    if copy_files:
-        shutil.copy2(image_source_path, image_target_path)
-    else:
+    if move_files:
         shutil.move(image_source_path, image_target_path)
+    else:
+        shutil.copy2(image_source_path, image_target_path)
     
-    # Move/copy label file
+    # Copy/move label file
     # Labels should NOT have _0000 suffix (e.g., case_0006.nii.gz)
     # nnUNet expects labels without channel suffix
     label_file = label_files[0]  # Should be only one file
@@ -204,10 +206,10 @@ def move_case_files(
     
     label_target_path = os.path.join(target_label_folder, label_target_name)
     
-    if copy_files:
-        shutil.copy2(label_source_path, label_target_path)
-    else:
+    if move_files:
         shutil.move(label_source_path, label_target_path)
+    else:
+        shutil.copy2(label_source_path, label_target_path)
     
     return True
 
@@ -247,14 +249,14 @@ def main():
         help='Random seed for reproducibility (default: 42)'
     )
     parser.add_argument(
-        '--copy',
+        '--move',
         action='store_true',
-        help='Copy files instead of moving them'
+        help='Move files instead of copying them (default: copy)'
     )
     parser.add_argument(
         '--dry_run',
         action='store_true',
-        help='Show what would be done without actually moving files'
+        help='Show what would be done without actually copying/moving files'
     )
     
     args = parser.parse_args()
@@ -267,7 +269,7 @@ def main():
     print(f"Train/Test split: {args.train_test_split}")
     print(f"Train/Val split: {args.train_val_split}")
     print(f"Random seed: {args.random_seed}")
-    print(f"Mode: {'COPY' if args.copy else 'MOVE'}")
+    print(f"Mode: {'MOVE' if args.move else 'COPY'}")
     print(f"Dry run: {args.dry_run}")
     print("=" * 60)
     
@@ -298,7 +300,7 @@ def main():
     print(f"Test cases: {len(test_cases)} ({100*len(test_cases)/len(cases):.1f}%)")
     
     if args.dry_run:
-        print("\n=== DRY RUN - No files will be moved ===")
+        print("\n=== DRY RUN - No files will be copied/moved ===")
         print(f"\nDataset folder would be created: {dataset_path}")
         print(f"\nTrain cases ({len(train_cases)}):")
         for case in train_cases[:10]:
@@ -327,19 +329,19 @@ def main():
     print("\nCreating split folders...")
     folders = create_split_folders(dataset_path)
     
-    # Move/copy files
-    print("\nMoving/copying files...")
+    # Copy/move files
+    print("\nCopying/moving files...")
     
     # Train cases
     print(f"\nProcessing {len(train_cases)} train cases...")
     train_success = 0
     for case_id in train_cases:
-        if move_case_files(
+        if copy_case_files(
             case_id,
             args.main_path,
             folders['imagesTr'],
             folders['labelsTr'],
-            copy_files=args.copy
+            move_files=args.move
         ):
             train_success += 1
     
@@ -347,12 +349,12 @@ def main():
     print(f"\nProcessing {len(val_cases)} validation cases...")
     val_success = 0
     for case_id in val_cases:
-        if move_case_files(
+        if copy_case_files(
             case_id,
             args.main_path,
             folders['imagesVa'],
             folders['labelsVa'],
-            copy_files=args.copy
+            move_files=args.move
         ):
             val_success += 1
     
@@ -360,12 +362,12 @@ def main():
     print(f"\nProcessing {len(test_cases)} test cases...")
     test_success = 0
     for case_id in test_cases:
-        if move_case_files(
+        if copy_case_files(
             case_id,
             args.main_path,
             folders['imagesTs'],
             folders['labelsTs'],
-            copy_files=args.copy
+            move_files=args.move
         ):
             test_success += 1
     
