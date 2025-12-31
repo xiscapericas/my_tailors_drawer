@@ -15,6 +15,14 @@ from typing import Dict, List
 import numpy as np
 import nibabel as nib
 import pandas as pd
+
+# Try to load from .env file if python-dotenv is available
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from nnunet_training.config import TrainingConfig
 
 try:

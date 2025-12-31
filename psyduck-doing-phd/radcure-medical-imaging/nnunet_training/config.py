@@ -10,6 +10,14 @@ import json
 from pathlib import Path
 from typing import Dict, Optional
 
+# Try to load from .env file if python-dotenv is available
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # python-dotenv not installed, will use environment variables directly
+    pass
+
 
 class TrainingConfig:
     """Configuration class for nnUNet training."""

@@ -15,6 +15,15 @@ Usage:
 
 import argparse
 import sys
+
+# Try to load from .env file if python-dotenv is available
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    print("✓ Loaded environment variables from .env file")
+except ImportError:
+    print("Note: python-dotenv not installed. Using environment variables directly.")
+
 from nnunet_training import prepare_dataset, train_model, predict_and_evaluate
 from nnunet_training.config import TrainingConfig
 

@@ -9,6 +9,14 @@ This module handles:
 import os
 import subprocess
 import sys
+
+# Try to load from .env file if python-dotenv is available
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from nnunet_training.config import TrainingConfig
 
 
