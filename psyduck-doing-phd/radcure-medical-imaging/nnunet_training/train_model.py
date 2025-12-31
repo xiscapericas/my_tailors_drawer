@@ -120,6 +120,82 @@ def train_model(config: TrainingConfig, log_file: str = None):
         raise RuntimeError(f"Training failed. Check {log_file} for details.")
 
 
+def verify_dataset_in_nnunet_raw(config: TrainingConfig):
+    """
+    Verify that dataset exists in nnUNet_raw folder and mapping is correct.
+    
+    Parameters
+    ----------
+    config : TrainingConfig
+        Configuration object
+    
+    Raises
+    ------
+    FileNotFoundError
+        If dataset is not found in nnUNet_raw
+    """
+    nnunet_raw_path = os.environ["nnUNet_raw"]
+    expected_path = os.path.join(nnunet_raw_path, config.dataset_name)
+    
+    # Check if nnUNet_raw exists
+    if not os.path.exists(nnunet_raw_path):
+        raise FileNotFoundError(
+            f"nnUNet_raw folder not found: {nnunet_raw_path}\n"
+            f"Please check your NNUNET_RETRAIN_PATH environment variable."
+        )
+    
+    # Check if dataset folder exists
+    if not os.path.exists(expected_path):
+        # List available datasets for debugging
+        available = []
+        if os.path.exists(nnunet_raw_path):
+            available = [d for d in os.listdir(nnunet_raw_path) 
+                        if os.path.isdir(os.path.join(nnunet_raw_path, d)) and d.startswith('Dataset')]
+        
+        error_msg = (
+            f"Dataset not found in nnUNet_raw:\n"
+            f"  Expected: {expected_path}\n"
+            f"  nnUNet_raw: {nnunet_raw_path}\n"
+            f"  Dataset ID: {config.dataset_id}\n"
+            f"  Dataset name: {config.dataset_name}\n"
+        )
+        
+        if available:
+            error_msg += f"\n  Available datasets in nnUNet_raw: {', '.join(available)}\n"
+        else:
+            error_msg += f"\n  No datasets found in nnUNet_raw folder.\n"
+        
+        error_msg += f"\nPlease run 'python train_nnunet.py --step prepare' first to copy the dataset."
+        
+        raise FileNotFoundError(error_msg)
+    
+    # Verify dataset.json exists
+    dataset_json_path = os.path.join(expected_path, 'dataset.json')
+    if not os.path.exists(dataset_json_path):
+        raise FileNotFoundError(
+            f"dataset.json not found in {expected_path}\n"
+            f"Please run 'python train_nnunet.py --step prepare' first."
+        )
+    
+    # Verify mapping file
+    mapping_file = os.path.join(
+        config.nnunet_path,
+        'nnunetv2/dataset_conversion/dataset_id_to_name_mapping.json'
+    )
+    if os.path.exists(mapping_file):
+        import json
+        with open(mapping_file, 'r') as f:
+            mapping = json.load(f)
+        if str(config.dataset_id) in mapping:
+            print(f"✓ Dataset mapping verified: {config.dataset_id} -> {mapping[str(config.dataset_id)]}")
+        else:
+            print(f"⚠️  Warning: Dataset ID {config.dataset_id} not found in mapping file")
+            print(f"  Mapping file: {mapping_file}")
+            print(f"  Available IDs: {list(mapping.keys())}")
+    
+    print(f"✓ Dataset verified in nnUNet_raw: {expected_path}")
+
+
 def main_plan():
     """Main function for planning and preprocessing."""
     print("=" * 70)
@@ -134,6 +210,10 @@ def main_plan():
     
     # Setup environment
     config.setup_nnunet_environment()
+    
+    # Verify dataset exists in nnUNet_raw
+    print("\nVerifying dataset in nnUNet_raw...")
+    verify_dataset_in_nnunet_raw(config)
     
     # Plan and preprocess
     plan_and_preprocess(config)

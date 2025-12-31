@@ -110,11 +110,25 @@ def create_dataset_mapping(config: TrainingConfig):
     with open(mapping_file, 'w') as f:
         json.dump(mapping, f, indent=4)
     
+    # Verify the mapping was written correctly
+    with open(mapping_file, 'r') as f:
+        verify_mapping = json.load(f)
+    
+    if str(config.dataset_id) not in verify_mapping:
+        raise RuntimeError(f"Failed to create dataset mapping for ID {config.dataset_id}")
+    
+    if verify_mapping[str(config.dataset_id)] != config.dataset_name:
+        raise RuntimeError(
+            f"Mapping mismatch: ID {config.dataset_id} maps to '{verify_mapping[str(config.dataset_id)]}' "
+            f"but expected '{config.dataset_name}'"
+        )
+    
     print(f"✓ Dataset mapping updated: {config.dataset_id} -> {config.dataset_name}")
     print(f"  Mapping file: {mapping_file}")
+    print(f"  Verified: Mapping contains {len(verify_mapping)} dataset(s)")
 
 
-def copy_dataset_to_nnunet_raw(config: TrainingConfig):
+def copy_dataset_to_nnunet_raw(config: TrainingConfig, overwrite: bool = False):
     """
     Copy dataset to nnUNet_raw folder.
     
@@ -122,24 +136,43 @@ def copy_dataset_to_nnunet_raw(config: TrainingConfig):
     ----------
     config : TrainingConfig
         Configuration object
+    overwrite : bool
+        If True, overwrite existing dataset without asking
     """
     nnunet_raw_path = os.environ["nnUNet_raw"]
     target_path = os.path.join(nnunet_raw_path, config.dataset_name)
     
     if os.path.exists(target_path):
-        print(f"⚠️  Dataset already exists in nnUNet_raw: {target_path}")
-        response = input("Do you want to overwrite? (yes/no): ")
-        if response.lower() != 'yes':
-            print("Skipping dataset copy.")
-            return
+        if not overwrite:
+            print(f"⚠️  Dataset already exists in nnUNet_raw: {target_path}")
+            response = input("Do you want to overwrite? (yes/no): ")
+            if response.lower() != 'yes':
+                print("Skipping dataset copy.")
+                return
+        print(f"Removing existing dataset at {target_path}...")
         shutil.rmtree(target_path)
     
     print(f"Copying dataset to nnUNet_raw...")
     print(f"  From: {config.dataset_folder}")
     print(f"  To: {target_path}")
     
+    if not os.path.exists(config.dataset_folder):
+        raise FileNotFoundError(
+            f"Source dataset folder not found: {config.dataset_folder}\n"
+            f"Please check your DATASET_FOLDER environment variable."
+        )
+    
     shutil.copytree(config.dataset_folder, target_path)
+    
+    # Verify the copy was successful
+    if not os.path.exists(os.path.join(target_path, 'dataset.json')):
+        raise RuntimeError(
+            f"Dataset copy incomplete: dataset.json not found in {target_path}\n"
+            f"Please check that the source dataset folder contains dataset.json"
+        )
+    
     print(f"✓ Dataset copied to {target_path}")
+    print(f"✓ Dataset ID {config.dataset_id} -> {config.dataset_name}")
 
 
 def main():
@@ -163,10 +196,9 @@ def main():
     # Create dataset mapping
     create_dataset_mapping(config)
     
-    # Copy dataset to nnUNet_raw (optional - can be done manually)
-    copy_choice = input("\nCopy dataset to nnUNet_raw folder? (yes/no, default: yes): ").lower()
-    if copy_choice != 'no':
-        copy_dataset_to_nnunet_raw(config)
+    # Copy dataset to nnUNet_raw (required for nnUNet to find the dataset)
+    print("\nCopying dataset to nnUNet_raw folder (required)...")
+    copy_dataset_to_nnunet_raw(config)
     
     print("\n" + "=" * 70)
     print("Dataset preparation complete!")
