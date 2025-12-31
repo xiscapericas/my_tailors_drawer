@@ -21,8 +21,8 @@ except ImportError:
     print("Note: python-dotenv not installed. Using environment variables directly.")
 
 # Configuration - Load from environment variables
-MAIN_PATH = os.getenv('MAIN_PATH', '/media/HDD_8TB/xisca/dataset/RadcureComplete/')
-AWS_BUCKET_NAME = os.getenv('AWS_BUCKET_NAME', 'xisca-lab')
+MAIN_PATH = os.getenv('MAIN_PATH', '/path/to/your/dataset/')
+AWS_BUCKET_NAME = os.getenv('AWS_BUCKET_NAME', 'your-bucket-name')
 AWS_FOLDER = os.getenv('AWS_FOLDER', 'RADCURE/all_cases/')
 AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
 AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')

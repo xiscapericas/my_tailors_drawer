@@ -340,6 +340,8 @@ This makes it easy to identify and troubleshoot problematic cases.
 
 ## Dependencies
 
+### Core Dependencies
+
 - `boto3` - AWS S3 operations
 - `numpy`, `pandas` - Data manipulation
 - `SimpleITK` - Medical image processing
@@ -351,6 +353,86 @@ This makes it easy to identify and troubleshoot problematic cases.
 - `scikit-image`, `scipy` - Image processing
 - `opencv-python` - Computer vision
 - `python-dotenv` - Environment variable management
+
+### nnUNet Training Dependencies
+
+- `p_tqdm` - Parallel progress bars
+- `surface-distance` - Surface distance metrics (install from: `git+https://github.com/google-deepmind/surface-distance.git`)
+- `nnUNet` - Medical image segmentation framework (see [nnUNet documentation](https://github.com/MIC-DKFZ/nnUNet))
+
+## nnUNet Training
+
+After processing and splitting your dataset, you can train an nnUNet model using the provided training pipeline.
+
+### Setup
+
+1. **Install additional dependencies**:
+   ```bash
+   pip install p_tqdm
+   pip install git+https://github.com/google-deepmind/surface-distance.git
+   ```
+
+2. **Configure environment variables**:
+   ```bash
+   cp nnunet_training.env.example .env
+   # Edit .env with your paths
+   ```
+
+   Required variables:
+   - `DATASET_FOLDER`: Path to your `DatasetXXX_TotalSegmentator` folder
+   - `ORGAN_DICTIONARY_PATH`: Path to `radcure_dictionary.json`
+
+   Optional variables (see `nnunet_training.env.example` for all options):
+   - `NNUNET_PATH`: Path to nnUNet installation
+   - `NNUNET_RETRAIN_PATH`: Base path for nnUNet folders
+   - `NNUNET_CONFIGURATION`: Model configuration (default: `3d_fullres`)
+   - `NNUNET_TRAINER`: Trainer class (default: `nnUNetTrainerNoMirroring`)
+
+### Usage
+
+**Run all steps sequentially:**
+```bash
+python train_nnunet.py --step all
+```
+
+**Or run individual steps:**
+
+1. **Prepare dataset**:
+   ```bash
+   python train_nnunet.py --step prepare
+   ```
+   - Generates `dataset.json` file
+   - Creates dataset ID to name mapping
+   - Optionally copies dataset to nnUNet_raw folder
+
+2. **Train model**:
+   ```bash
+   python train_nnunet.py --step train
+   ```
+   - Plans and preprocesses the dataset
+   - Trains the model
+
+3. **Evaluate model**:
+   ```bash
+   python train_nnunet.py --step evaluate
+   ```
+   - Runs predictions on test set
+   - Computes Dice and Surface Dice metrics
+   - Saves detailed results to CSV
+
+### Output
+
+- **Logs**: Saved in `LOG_DIR` (default: `./logs/`)
+  - `preprocess_d{ID}.log`: Preprocessing log
+  - `train_d{ID}_f{fold}.log`: Training log
+  - `prediction_d{ID}.log`: Prediction log
+  - `evaluation_d{ID}.csv`: Detailed evaluation results
+
+- **Model**: Saved in `{NNUNET_RETRAIN_PATH}/nnUNet_results/`
+
+- **Predictions**: Saved in `{DATASET_FOLDER}/labelsTs_predicted/`
+
+For more details, see `nnunet_training/README.md`.
 
 ## Workflow
 
@@ -379,7 +461,15 @@ This makes it easy to identify and troubleshoot problematic cases.
        --output_path /path/to/split/output/
    ```
 
-5. **Use the split dataset** for TotalSegmentator retraining
+5. **Train nnUNet model**:
+   ```bash
+   # Configure nnUNet training environment
+   cp nnunet_training.env.example .env
+   # Edit .env with nnUNet paths
+   
+   # Run training pipeline
+   python train_nnunet.py --step all
+   ```
 
 ## Security
 
