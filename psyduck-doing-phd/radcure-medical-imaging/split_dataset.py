@@ -180,6 +180,7 @@ def move_case_files(
         return False
     
     # Move/copy image file
+    # Images should have _0000 suffix (e.g., case_0006_0000.nii.gz)
     image_file = image_files[0]  # Should be only one file
     image_source_path = os.path.join(image_source, image_file)
     image_target_path = os.path.join(target_image_folder, image_file)
@@ -190,9 +191,18 @@ def move_case_files(
         shutil.move(image_source_path, image_target_path)
     
     # Move/copy label file
+    # Labels should NOT have _0000 suffix (e.g., case_0006.nii.gz)
+    # nnUNet expects labels without channel suffix
     label_file = label_files[0]  # Should be only one file
     label_source_path = os.path.join(label_source, label_file)
-    label_target_path = os.path.join(target_label_folder, label_file)
+    
+    # Remove _0000 suffix from label filename if present
+    if label_file.endswith('_0000.nii.gz'):
+        label_target_name = label_file.replace('_0000.nii.gz', '.nii.gz')
+    else:
+        label_target_name = label_file
+    
+    label_target_path = os.path.join(target_label_folder, label_target_name)
     
     if copy_files:
         shutil.copy2(label_source_path, label_target_path)

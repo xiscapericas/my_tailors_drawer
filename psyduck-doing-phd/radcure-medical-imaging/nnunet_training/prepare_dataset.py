@@ -175,6 +175,68 @@ def copy_dataset_to_nnunet_raw(config: TrainingConfig, overwrite: bool = False):
     print(f"✓ Dataset ID {config.dataset_id} -> {config.dataset_name}")
 
 
+def verify_and_fix_file_naming(config: TrainingConfig):
+    """
+    Verify and fix file naming convention for nnUNet.
+    
+    nnUNet expects:
+    - Images: case_XXXX_0000.nii.gz (with _0000 suffix)
+    - Labels: case_XXXX.nii.gz (without _0000 suffix)
+    
+    Parameters
+    ----------
+    config : TrainingConfig
+        Configuration object
+    """
+    paths = config.get_dataset_paths()
+    
+    print("\nVerifying file naming convention...")
+    
+    # Check images
+    for folder_name, folder_path in [
+        ('imagesTr', paths['imagesTr']),
+        ('imagesTs', paths['imagesTs']),
+        ('imagesVa', paths['imagesVa'])
+    ]:
+        if not os.path.exists(folder_path):
+            continue
+        
+        files = [f for f in os.listdir(folder_path) if f.endswith('.nii.gz')]
+        for file in files:
+            if not file.endswith('_0000.nii.gz'):
+                print(f"⚠️  Warning: Image file {file} in {folder_name} should end with '_0000.nii.gz'")
+    
+    # Check and fix labels
+    renamed_count = 0
+    for folder_name, folder_path in [
+        ('labelsTr', paths['labelsTr']),
+        ('labelsTs', paths['labelsTs']),
+        ('labelsVa', paths['labelsVa'])
+    ]:
+        if not os.path.exists(folder_path):
+            continue
+        
+        files = [f for f in os.listdir(folder_path) if f.endswith('.nii.gz')]
+        for file in files:
+            if file.endswith('_0000.nii.gz'):
+                # Rename to remove _0000 suffix
+                old_path = os.path.join(folder_path, file)
+                new_name = file.replace('_0000.nii.gz', '.nii.gz')
+                new_path = os.path.join(folder_path, new_name)
+                
+                if os.path.exists(new_path):
+                    print(f"⚠️  Warning: Both {file} and {new_name} exist in {folder_name}, skipping rename")
+                else:
+                    os.rename(old_path, new_path)
+                    print(f"✓ Renamed: {file} -> {new_name} in {folder_name}")
+                    renamed_count += 1
+    
+    if renamed_count > 0:
+        print(f"\n✓ Fixed {renamed_count} label file(s) by removing '_0000' suffix")
+    else:
+        print("✓ All files have correct naming convention")
+
+
 def main():
     """Main function for dataset preparation."""
     print("=" * 70)
@@ -189,6 +251,9 @@ def main():
     
     # Setup environment
     config.setup_nnunet_environment()
+    
+    # Verify and fix file naming
+    verify_and_fix_file_naming(config)
     
     # Generate dataset.json
     generate_dataset_json(config)
