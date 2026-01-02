@@ -41,12 +41,22 @@ def main():
         required=True,
         help='Which step to run: prepare, plan, train, evaluate, or all'
     )
+    parser.add_argument(
+        '--num-processes',
+        type=int,
+        default=None,
+        help='Number of processes for planning/preprocessing (overrides NNUNET_NUM_PROCESSES env var)'
+    )
     
     args = parser.parse_args()
     
     # Load configuration (will validate environment variables)
     try:
         config = TrainingConfig()
+        # Override num_processes if provided via CLI
+        if args.num_processes is not None:
+            config.num_processes = args.num_processes
+            print(f"Using {config.num_processes} process(es) for planning/preprocessing")
     except Exception as e:
         print(f"✗ Configuration error: {e}")
         print("\nRequired environment variables:")
