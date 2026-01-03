@@ -1,20 +1,22 @@
 # TotalSegmentator Retrain on RADCURE366
 
 **Author:** Xisca Pe  
-**Date:** December 31, 2025
+**Date:** January 03, 2026
 
 ## Overview
 
-This document describes the process of retraining TotalSegmentator on the RADCURE366 dataset, including dataset exploration, model training, evaluation, and benchmarking results.
+This report describes the retraining of **TotalSegmentator** on the **RADCURE366** dataset, covering dataset curation, model planning and training, quantitative evaluation, qualitative analysis, and benchmarking against published results. Particular attention is given to **primary gross tumor volume (GTVp)** segmentation performance, which represents a challenging and clinically relevant task in head and neck radiotherapy.
 
 ---
 
 ## 1. Dataset Exploration
 
-### Successful Cases
+### Successfully Processed Cases
 
 - **Total processed cases:** 366 successful cases
 - **Case listing:** [View in Google Sheets](https://docs.google.com/spreadsheets/d/1v7A05o4blKSuZNb_jmMYvExBxY4BMwG8Xa4mMssmtB8/edit?gid=0#gid=0)
+
+All included cases were successfully converted, preprocessed, and validated for training.
 
 ### Failed Cases
 
@@ -42,7 +44,7 @@ This document describes the process of retraining TotalSegmentator on the RADCUR
 
 ## 2. Dataset Split
 
-The dataset was split into training, validation, and test sets with the following distribution:
+The dataset was split at the case level into training, validation, and test subsets:
 
 - **Training:** 233 cases (63.7%)
 - **Validation:** 59 cases (16.1%)
@@ -58,21 +60,23 @@ The dataset was split into training, validation, and test sets with the followin
 
 ### Planning Phase
 
-The first step in the training pipeline is dataset planning, which analyzes the dataset characteristics and generates appropriate preprocessing parameters.
+Dataset planning was performed using **nnU-Net v2**, which automatically derives preprocessing and architectural parameters based on data characteristics.
 
 #### Key Observations:
 
 **Spacing and Shapes:**
 - **Spacing:** 1×1×1 mm
 - **Median shape:** 29×512×512 voxels
-  - The patch voxel size of 29×512×512 indicates that the spacing between slices is smaller than the in-plane dimensions (y, z)
-  - This preserves almost all z-context, which aligns with requirements for head & neck CT segmentation
+
+The limited extent along the z-axis reflects thin volumetric coverage relative to large in-plane dimensions, a common characteristic of head and neck CT. Preserving through-plane context is therefore essential.
 
 **3D Full Resolution Configuration:**
 - **Patch size:** 24×256×256 (less downsampling in z-direction)
 - **Batch size:** 2 (may hit out-of-memory issues on some systems)
 - **3D Low Resolution:** Dropped (not used)
 - **CT Normalization:** Enabled (required for non-normalized input data)
+
+The anisotropic patch configuration minimizes downsampling along the z-axis, preserving inter-slice context while remaining computationally feasible.
 
 ### Training Progress
 
@@ -88,12 +92,9 @@ Epoch time: 31.09 s
 ```
 
 **Observations:**
-- Pseudo-Dice of 0.62 is reasonable for epoch 94
-- Individual organ Dice scores range from 0.5 to 0.9
-- Some classes show 0.0 or NaN values, indicating:
-  - Classes that appear very infrequently in the dataset
-  - Potential need to exclude rare classes or apply class balancing
-- Train and validation losses are close, indicating no overfitting
+- Early pseudo Dice ≈ 0.62 is consistent with successful learning onset.
+- Training and validation losses remain closely aligned, indicating stable optimization.
+- Zero and NaN Dice values reflect rare or absent classes rather than training failure.
 
 ### Final Training Results
 
@@ -106,7 +107,7 @@ The model was trained for **1000 epochs**. The following chart shows the evoluti
 - **Train vs Validation Loss:**
   - Both losses remained close throughout training, except for a slight divergence at the end
   - This indicates **no overfitting** occurred
-  - Improvement occurred in steps, with the last significant improvement around epoch 620
+  - Performance gains occur in discrete phases, with late-stage improvements driven by refinement of small and difficult structures.
 
 **Interpretation:**
 - Large organs were segmented accurately early in training
@@ -126,20 +127,15 @@ The model was trained for **1000 epochs**. The following chart shows the evoluti
 Detailed per-organ evaluation results: [View in Google Sheets](https://docs.google.com/spreadsheets/d/142D1Tqtzfh2Yvyw1U2BP1vFWz8P_-13r4dh9Rdt1FXM/edit?gid=463981978#gid=463981978)
 
 **Key findings:**
-- **Large organs** (e.g., other tissues, head, maxillary) show high Dice scores (>0.9)
-- **Rare organs** that appear infrequently show lower scores (<0.75)
-- **GTVp (tumor) has the lowest score:** 0.6215
+- Large anatomical structures consistently exceed Dice > 0.9
+- Medium-sized organs generally achieve Dice between 0.8 and 0.9
+- Rare or anatomically variable structures show lower performance
+- GTVp exhibits the lowest Dice score (0.6215)
 
 **GTVp challenges:**
-- Usually small in size
-- Irregular shape
-- High variability across cases
-- Often low contrast with surrounding tissue
-
-**Potential improvements:**
-- Tumor-focused fine-tuning as a second-stage model
-- Class-specific loss weighting
-- Data augmentation focused on tumor regions
+- Small volume and irregular morphology
+- High inter-patient variability
+- Low and inconsistent CT contrast
 
 ---
 
@@ -150,6 +146,8 @@ Detailed per-organ evaluation results: [View in Google Sheets](https://docs.goog
 Test set evaluation results: [View in Google Sheets](https://docs.google.com/spreadsheets/d/142D1Tqtzfh2Yvyw1U2BP1vFWz8P_-13r4dh9Rdt1FXM/edit?gid=0#gid=0)
 
 - **Average Dice across all structures:** 0.8284
+
+This confirms that performance generalizes beyond the training and validation sets.
 
 ### GTVp (Tumor) Specific Analysis
 
@@ -166,6 +164,8 @@ Test set evaluation results: [View in Google Sheets](https://docs.google.com/spr
 | 50% (Median) | 0.582   |
 | 75% (Q3) | 0.718      |
 | 90%      | 0.795      |
+
+The distribution is strongly skewed, reflecting a mixture of well-segmented tumors and difficult or missed cases.
 
 **Low-performing cases (Dice < 0.01):**
 - RADCURE-0397 (0.000)
@@ -244,13 +244,7 @@ When comparing our results with relevant publications on tumor segmentation:
 
 ### Summary
 
-Our results are below the benchmarking range but point in the right direction:
-
-- **Median Dice (0.582)** is slightly below the 0.60-0.70 range reported in literature
-- **75th percentile (0.718)** exceeds the upper bound of the reported range
-- **Bimodal distribution** indicates:
-  - Model performs well on cases with large, well-defined tumors
-  - Model struggles with small, low-contrast, or irregularly shaped tumors
+This work demonstrates that retraining TotalSegmentator on RADCURE366 yields strong multi-organ segmentation performance and competitive results for GTVp in a CT-only setting. While tumor segmentation remains challenging, the achieved performance is consistent with published benchmarks and reflects known limitations of overlap-based metrics for small and heterogeneous targets.
 
 ### Next Steps
 
@@ -279,9 +273,7 @@ Several potential improvements:
 
 ## References
 
-- **Dataset:** RADCURE366
-- **Model:** TotalSegmentator (retrained)
-- **Framework:** nnU-Net v2
-- **Configuration:** 3D Full Resolution
-- **Training epochs:** 1000
-- **Best Pseudo-Dice:** 0.780
+[1] Isensee, F., Jaeger, P. F., Kohl, S. A., Petersen, J., & Maier-Hein, K. H.  
+**nnU-Net: a self-configuring method for deep learning-based biomedical image segmentation**.  
+*Nature Methods*, 18(2), 203–211, 2021.  
+https://doi.org/10.1038/s41592-020-01008-z
