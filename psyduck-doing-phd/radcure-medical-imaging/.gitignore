@@ -57,3 +57,7 @@ TotalSegmentatorRetrain/
 *.dcm
 *.zip
 
+# Avoid images for case study 
+!use-case-study/images/
+!use-case-study/images/*.png
+

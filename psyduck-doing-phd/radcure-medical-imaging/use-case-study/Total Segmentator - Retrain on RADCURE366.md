@@ -33,10 +33,10 @@ This document describes the process of retraining TotalSegmentator on the RADCUR
 ### Example Cases
 
 **RADCURE-0027:**
-![Example case RADCURE-0027](images/image1.png)
+![Example case RADCURE-0027](./images/image1.png)
 
 **RADCURE-0106:**
-![Example case RADCURE-0106](images/image2.png)
+![Example case RADCURE-0106](./images/image2.png)
 
 ---
 
@@ -99,7 +99,7 @@ Epoch time: 31.09 s
 
 The model was trained for **1000 epochs**. The following chart shows the evolution of loss and Dice scores throughout training:
 
-![Training progress: Loss and Dice evolution](images/image3.png)
+![Training progress: Loss and Dice evolution](./images/image3.png)
 
 #### Loss Analysis:
 
@@ -189,13 +189,13 @@ Test set evaluation results: [View in Google Sheets](https://docs.google.com/spr
 #### Low Dice Cases
 
 **Case 1:**
-![Low Dice case example 1](images/image4.png)
+![Low Dice case example 1](./images/image4.png)
 
 - The shape of the structure is quite irregular
 - The tumor changes shape inconsistently across CT slices
 
 **Case 2:**
-![Low Dice case example 2](images/image5.png)
+![Low Dice case example 2](./images/image5.png)
 
 - Tumor located in the nasal area (away from typical neck region)
 - Not clearly identifiable in the CT scan
@@ -203,13 +203,13 @@ Test set evaluation results: [View in Google Sheets](https://docs.google.com/spr
 #### High Dice Cases
 
 **Case 1:**
-![High Dice case example 1](images/image6.png)
+![High Dice case example 1](./images/image6.png)
 
 - Large tumor area
 - Clear boundaries
 
 **Case 2:**
-![High Dice case example 2](images/image7.png)
+![High Dice case example 2](./images/image7.png)
 
 - Large, well-defined tumor region
 - Good contrast with surrounding tissue
