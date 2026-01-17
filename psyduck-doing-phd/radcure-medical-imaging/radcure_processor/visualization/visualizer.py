@@ -159,7 +159,8 @@ class MedicalImageVisualizer:
         axis: int = 2,
         save_pdf_path: Optional[str] = None,
         show: bool = True,
-        slice_indices: Optional[List[int]] = None
+        slice_indices: Optional[List[int]] = None,
+        organ_dictionary_path: Optional[str] = None
     ) -> None:
         """
         Visualize two NIfTI volumes slice-by-slice with 3 panels:
@@ -179,11 +180,71 @@ class MedicalImageVisualizer:
             If True, displays figures interactively
         slice_indices : List[int], optional
             Specific slice indices to visualize. If None, shows all slices.
+        organ_dictionary_path : str, optional
+            Path to JSON file containing organ dictionary. If provided, enables
+            legend with organ names and forces GTVp to be red.
         """
         img_vol = NIfTIHandler.load_nii_image(path_image)
         mask_vol = NIfTIHandler.load_nii_mask(path_mask)
         
-        cmap_mask, norm_mask = MedicalImageVisualizer.make_label_cmap(mask_vol)
+        # Load organ dictionary if provided
+        organ_dict = None
+        index_to_organ = None
+        gtvp_index = None
+        use_legend = False
+        
+        if organ_dictionary_path and os.path.exists(organ_dictionary_path):
+            try:
+                with open(organ_dictionary_path, 'r') as f:
+                    organ_dict = json.load(f)
+                # Invert dictionary: {organ_name: index} -> {index: organ_name}
+                index_to_organ = {v: k for k, v in organ_dict.items()}
+                gtvp_index = organ_dict.get('GTVp', None)
+                use_legend = True
+                if gtvp_index is not None:
+                    print(f"✓ Found GTVp at index {gtvp_index}")
+            except Exception as e:
+                print(f"⚠️ Warning: Could not load organ dictionary: {e}")
+                use_legend = False
+        
+        # Determine maximum label for colormap
+        max_label = int(mask_vol.max())
+        if max_label <= 0:
+            max_label = 1
+        
+        # Create colormap with GTVp in red if dictionary is available
+        if use_legend and gtvp_index is not None:
+            # Ensure colormap has enough entries for all labels including GTVp
+            colormap_size = max(max_label + 1, gtvp_index + 1)
+            base_cmap = plt.cm.get_cmap("tab20", colormap_size)
+            colors = base_cmap(np.arange(colormap_size))
+            colors[0, :] = [0.0, 0.0, 0.0, 0.0]  # transparent background
+            
+            # Set GTVp to pure red
+            if gtvp_index < colormap_size:
+                colors[gtvp_index, :] = [1.0, 0.0, 0.0, 1.0]
+                print(f"✓ Set GTVp (index {gtvp_index}) to RED color")
+                
+                # Ensure no other organ uses red
+                red_threshold = 0.7
+                replaced_count = 0
+                for i in range(1, colormap_size):
+                    if i != gtvp_index and colors[i, 0] > red_threshold:
+                        alt_cmap = plt.cm.get_cmap("Set3", colormap_size)
+                        alt_colors = alt_cmap(np.arange(colormap_size))
+                        colors[i, :3] = alt_colors[i, :3]
+                        colors[i, 3] = 1.0
+                        replaced_count += 1
+                if replaced_count > 0:
+                    print(f"✓ Replaced {replaced_count} red-like colors to avoid conflict with GTVp")
+            
+            cmap_mask = ListedColormap(colors)
+            boundaries = np.arange(-0.5, colormap_size + 0.5, 1)
+            norm_mask = BoundaryNorm(boundaries, cmap_mask.N)
+        else:
+            # Use default colormap
+            cmap_mask, norm_mask = MedicalImageVisualizer.make_label_cmap(mask_vol)
+            colors = None  # Not available for legend
         
         if img_vol.shape != mask_vol.shape:
             print("⚠️ Warning: volumes have different shapes:",
@@ -219,16 +280,30 @@ class MedicalImageVisualizer:
                 img_slice = get_slice(img_vol, slice_idx, axis)
                 mask_slice = get_slice(mask_vol, slice_idx, axis)
                 
-                fig, (ax_img, ax_mask, ax_overlay) = plt.subplots(1, 3, figsize=(15, 5))
+                # Get unique labels present in THIS specific slice
+                unique_labels_slice = set(np.unique(mask_slice).astype(int))
+                unique_labels_slice = sorted([l for l in unique_labels_slice if l > 0])
+                
+                # Create figure with legend if organ dictionary is available
+                if use_legend:
+                    fig = plt.figure(figsize=(18, 5))
+                    gs = fig.add_gridspec(1, 4, width_ratios=[1, 1, 1, 0.4], hspace=0.3)
+                    ax_img = fig.add_subplot(gs[0])
+                    ax_mask = fig.add_subplot(gs[1])
+                    ax_overlay = fig.add_subplot(gs[2])
+                    ax_legend = fig.add_subplot(gs[3])
+                else:
+                    fig, (ax_img, ax_mask, ax_overlay) = plt.subplots(1, 3, figsize=(15, 5))
+                    ax_legend = None
                 
                 # Image panel
                 ax_img.imshow(img_slice, cmap="gray")
-                ax_img.set_title(f"Image (slice {slice_idx})")
+                ax_img.set_title(f"Image (slice {slice_idx})", fontsize=12)
                 ax_img.axis("off")
                 
                 # Mask panel
                 ax_mask.imshow(mask_slice, cmap=cmap_mask, norm=norm_mask)
-                ax_mask.set_title("Mask (labels)")
+                ax_mask.set_title("Mask (labels)", fontsize=12)
                 ax_mask.axis("off")
                 
                 # Overlay panel
@@ -236,20 +311,57 @@ class MedicalImageVisualizer:
                 ax_overlay.imshow(
                     mask_slice, cmap=cmap_mask, norm=norm_mask, alpha=0.4
                 )
-                ax_overlay.set_title("Overlay")
+                ax_overlay.set_title("Overlay", fontsize=12)
                 ax_overlay.axis("off")
                 
-                fig.tight_layout()
+                # Create legend with organ names - only for organs present in this slice
+                if use_legend and ax_legend is not None and colors is not None:
+                    ax_legend.axis("off")
+                    legend_patches = []
+                    seen_colors = set()  # Track colors to avoid duplicates
+                    
+                    for label_idx in unique_labels_slice:
+                        organ_name = index_to_organ.get(label_idx, f"Label {label_idx}")
+                        # Get color directly from our colors array
+                        if label_idx < len(colors):
+                            color = colors[label_idx]
+                        else:
+                            # Fallback: get from colormap
+                            color = cmap_mask(norm_mask(label_idx))
+                        
+                        # Ensure GTVp is always red in legend (double-check)
+                        if organ_name == 'GTVp' and gtvp_index is not None and label_idx == gtvp_index:
+                            color = [1.0, 0.0, 0.0, 1.0]  # Pure red
+                        
+                        # Convert color to tuple for comparison (avoid duplicates)
+                        color_tuple = tuple(color[:3])  # RGB only, ignore alpha
+                        
+                        # Skip if we've already seen this exact color (avoid duplicate entries)
+                        if color_tuple not in seen_colors:
+                            seen_colors.add(color_tuple)
+                            patch = mpatches.Patch(facecolor=color, edgecolor='black', 
+                                                 linewidth=0.5, label=organ_name)
+                            legend_patches.append(patch)
+                    
+                    if legend_patches:
+                        ax_legend.legend(handles=legend_patches, loc='center left',
+                                       fontsize=9, framealpha=0.9)
+                        ax_legend.set_title("Organs", fontsize=11, pad=10)
+                
+                if use_legend:
+                    fig.suptitle(f"Slice {slice_idx}/{num_slices-1}", 
+                               fontsize=14, y=0.98)
+                    fig.tight_layout(rect=[0, 0, 0.95, 0.96])
+                else:
+                    fig.tight_layout()
                 
                 if pdf is not None:
                     pdf.savefig(fig, bbox_inches="tight")
                 
                 if show:
                     plt.show()
-                else:
                     plt.close(fig)
-                
-                if show:
+                else:
                     plt.close(fig)
         
         finally:
