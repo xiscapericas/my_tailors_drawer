@@ -328,32 +328,47 @@ class MedicalImageVisualizer:
         
         # Find GTVp index if it exists
         gtvp_index = organ_dict.get('GTVp', None)
+        if gtvp_index is not None:
+            print(f"✓ Found GTVp at index {gtvp_index}")
+        else:
+            print("⚠️ Warning: GTVp not found in organ dictionary")
+        
+        # Ensure colormap has enough entries for all labels including GTVp
+        # Use max of actual max_label and gtvp_index to ensure enough colors
+        if gtvp_index is not None:
+            colormap_size = max(max_label + 1, gtvp_index + 1)
+        else:
+            colormap_size = max_label + 1
         
         # Create unified colormap (same for both masks)
         # Use tab20 colormap but ensure GTVp is always RED
-        base_cmap = plt.cm.get_cmap("tab20", max_label + 1)
-        colors = base_cmap(np.arange(max_label + 1))
+        base_cmap = plt.cm.get_cmap("tab20", colormap_size)
+        colors = base_cmap(np.arange(colormap_size))
         colors[0, :] = [0.0, 0.0, 0.0, 0.0]  # transparent background
         
         # Force GTVp to be RED and ensure no other organ uses red
-        if gtvp_index is not None and gtvp_index <= max_label:
+        if gtvp_index is not None and gtvp_index < colormap_size:
             # Set GTVp to pure red: [1.0, 0.0, 0.0, 1.0]
             colors[gtvp_index, :] = [1.0, 0.0, 0.0, 1.0]
+            print(f"✓ Set GTVp (index {gtvp_index}) to RED color")
             
             # Ensure no other organ uses red (replace any red-like colors)
             red_threshold = 0.7  # Consider colors with R > 0.7 as "red-like"
-            for i in range(1, max_label + 1):
+            replaced_count = 0
+            for i in range(1, colormap_size):
                 if i != gtvp_index and colors[i, 0] > red_threshold:
-                    # Replace with a different color from tab20, shifted
-                    # Use a different colormap or shift the index
-                    alt_cmap = plt.cm.get_cmap("Set3", max_label + 1)
-                    alt_colors = alt_cmap(np.arange(max_label + 1))
+                    # Replace with a different color from a different colormap
+                    alt_cmap = plt.cm.get_cmap("Set3", colormap_size)
+                    alt_colors = alt_cmap(np.arange(colormap_size))
                     # Use the alternative color but keep alpha
                     colors[i, :3] = alt_colors[i, :3]
                     colors[i, 3] = 1.0  # Keep full opacity
+                    replaced_count += 1
+            if replaced_count > 0:
+                print(f"✓ Replaced {replaced_count} red-like colors to avoid conflict with GTVp")
         
         cmap_mask = ListedColormap(colors)
-        boundaries = np.arange(-0.5, max_label + 1.5, 1)
+        boundaries = np.arange(-0.5, colormap_size + 0.5, 1)
         norm_mask = BoundaryNorm(boundaries, cmap_mask.N)
         
         # Check shapes
@@ -388,12 +403,12 @@ class MedicalImageVisualizer:
                 raise ValueError("axis must be 0, 1, or 2")
             return np.rot90(sl)
         
-        # Get unique labels present in either mask for legend
+        # Get unique labels present in either mask (for overall legend - will be filtered per slice)
         unique_labels_gt = set(np.unique(gt_mask_vol).astype(int))
         unique_labels_pred = set(np.unique(pred_mask_vol).astype(int))
-        unique_labels = sorted(unique_labels_gt.union(unique_labels_pred))
-        # Remove background (0) from legend
-        unique_labels = [l for l in unique_labels if l > 0]
+        unique_labels_all = sorted(unique_labels_gt.union(unique_labels_pred))
+        # Remove background (0)
+        unique_labels_all = [l for l in unique_labels_all if l > 0]
         
         pdf = PdfPages(save_pdf_path) if save_pdf_path else None
         
@@ -402,6 +417,13 @@ class MedicalImageVisualizer:
                 img_slice = get_slice(img_vol, slice_idx, axis)
                 gt_slice = get_slice(gt_mask_vol, slice_idx, axis)
                 pred_slice = get_slice(pred_mask_vol, slice_idx, axis)
+                
+                # Get unique labels present in THIS specific slice
+                unique_labels_slice_gt = set(np.unique(gt_slice).astype(int))
+                unique_labels_slice_pred = set(np.unique(pred_slice).astype(int))
+                unique_labels_slice = sorted(unique_labels_slice_gt.union(unique_labels_slice_pred))
+                # Remove background (0) from legend
+                unique_labels_slice = [l for l in unique_labels_slice if l > 0]
                 
                 # Create figure with 3 panels + space for legend
                 fig = plt.figure(figsize=(18, 6))
@@ -427,19 +449,33 @@ class MedicalImageVisualizer:
                 ax_pred.set_title("Predicted Mask", fontsize=12)
                 ax_pred.axis("off")
                 
-                # Create legend with organ names
+                # Create legend with organ names - only for organs present in this slice
                 ax_legend.axis("off")
                 legend_patches = []
-                for label_idx in unique_labels:
+                seen_colors = set()  # Track colors to avoid duplicates
+                
+                for label_idx in unique_labels_slice:
                     organ_name = index_to_organ.get(label_idx, f"Label {label_idx}")
-                    # Get color from colormap
-                    color = cmap_mask(norm_mask(label_idx))
-                    # Ensure GTVp is always red in legend too
-                    if organ_name == 'GTVp' and gtvp_index is not None:
+                    # Get color directly from our colors array to ensure GTVp is red
+                    if label_idx < len(colors):
+                        color = colors[label_idx]
+                    else:
+                        # Fallback: get from colormap
+                        color = cmap_mask(norm_mask(label_idx))
+                    
+                    # Ensure GTVp is always red in legend (double-check)
+                    if organ_name == 'GTVp' and gtvp_index is not None and label_idx == gtvp_index:
                         color = [1.0, 0.0, 0.0, 1.0]  # Pure red
-                    patch = mpatches.Patch(facecolor=color, edgecolor='black', 
-                                         linewidth=0.5, label=organ_name)
-                    legend_patches.append(patch)
+                    
+                    # Convert color to tuple for comparison (avoid duplicates)
+                    color_tuple = tuple(color[:3])  # RGB only, ignore alpha
+                    
+                    # Skip if we've already seen this exact color (avoid duplicate entries)
+                    if color_tuple not in seen_colors:
+                        seen_colors.add(color_tuple)
+                        patch = mpatches.Patch(facecolor=color, edgecolor='black', 
+                                             linewidth=0.5, label=organ_name)
+                        legend_patches.append(patch)
                 
                 if legend_patches:
                     ax_legend.legend(handles=legend_patches, loc='center left',
