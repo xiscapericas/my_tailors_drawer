@@ -5,8 +5,10 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.colors import ListedColormap, BoundaryNorm
 from matplotlib.backends.backend_pdf import PdfPages
-from typing import Optional, List
+from typing import Optional, List, Dict
 import SimpleITK as sitk
+import json
+import os
 from radcure_processor.io.nifti_handler import NIfTIHandler
 
 
@@ -248,6 +250,188 @@ class MedicalImageVisualizer:
                     plt.close(fig)
                 
                 if show:
+                    plt.close(fig)
+        
+        finally:
+            if pdf is not None:
+                pdf.close()
+    
+    @staticmethod
+    def visualize_prediction_comparison(
+        case_id: str,
+        images_folder: str,
+        labels_folder: str,
+        predicted_labels_folder: str,
+        organ_dictionary_path: str,
+        axis: int = 2,
+        save_pdf_path: Optional[str] = None,
+        show: bool = True,
+        slice_indices: Optional[List[int]] = None
+    ) -> None:
+        """
+        Visualize CT image, ground truth mask, and predicted mask side by side.
+        
+        Parameters
+        ----------
+        case_id : str
+            Case identifier (e.g., "case_0405")
+        images_folder : str
+            Path to folder containing images (e.g., "imagesTs")
+        labels_folder : str
+            Path to folder containing ground truth labels (e.g., "labelsTs")
+        predicted_labels_folder : str
+            Path to folder containing predicted labels (e.g., "labelsTs_predicted")
+        organ_dictionary_path : str
+            Path to JSON file containing organ dictionary mapping organ names to indices
+        axis : int
+            Axis to slice along: 0 = sagittal, 1 = coronal, 2 = axial (default)
+        save_pdf_path : str, optional
+            If provided, saves all slice figures into one PDF
+        show : bool
+            If True, displays figures interactively
+        slice_indices : List[int], optional
+            Specific slice indices to visualize. If None, shows all slices.
+        """
+        # Load organ dictionary
+        if not os.path.exists(organ_dictionary_path):
+            raise FileNotFoundError(
+                f"Organ dictionary not found at {organ_dictionary_path}"
+            )
+        
+        with open(organ_dictionary_path, 'r') as f:
+            organ_dict: Dict[str, int] = json.load(f)
+        
+        # Invert dictionary: {organ_name: index} -> {index: organ_name}
+        index_to_organ: Dict[int, str] = {v: k for k, v in organ_dict.items()}
+        
+        # Construct file paths
+        # Images have _0000 suffix, labels don't
+        image_path = os.path.join(images_folder, f"{case_id}_0000.nii.gz")
+        label_path = os.path.join(labels_folder, f"{case_id}.nii.gz")
+        predicted_path = os.path.join(predicted_labels_folder, f"{case_id}.nii.gz")
+        
+        # Check if files exist
+        for path, name in [(image_path, "image"), (label_path, "ground truth"), 
+                          (predicted_path, "predicted")]:
+            if not os.path.exists(path):
+                raise FileNotFoundError(f"{name} file not found: {path}")
+        
+        # Load volumes
+        img_vol = NIfTIHandler.load_nii_image(image_path)
+        gt_mask_vol = NIfTIHandler.load_nii_mask(label_path)
+        pred_mask_vol = NIfTIHandler.load_nii_mask(predicted_path)
+        
+        # Determine maximum label across both masks for unified colormap
+        max_label = max(int(gt_mask_vol.max()), int(pred_mask_vol.max()))
+        if max_label <= 0:
+            max_label = 1
+        
+        # Create unified colormap (same for both masks)
+        base_cmap = plt.cm.get_cmap("tab20", max_label + 1)
+        colors = base_cmap(np.arange(max_label + 1))
+        colors[0, :] = [0.0, 0.0, 0.0, 0.0]  # transparent background
+        cmap_mask = ListedColormap(colors)
+        boundaries = np.arange(-0.5, max_label + 1.5, 1)
+        norm_mask = BoundaryNorm(boundaries, cmap_mask.N)
+        
+        # Check shapes
+        if img_vol.shape != gt_mask_vol.shape:
+            print("⚠️ Warning: image and ground truth have different shapes:",
+                  img_vol.shape, gt_mask_vol.shape)
+        if img_vol.shape != pred_mask_vol.shape:
+            print("⚠️ Warning: image and predicted mask have different shapes:",
+                  img_vol.shape, pred_mask_vol.shape)
+        
+        num_slices = min(img_vol.shape[axis], gt_mask_vol.shape[axis], 
+                        pred_mask_vol.shape[axis])
+        
+        # Determine which slices to show
+        if slice_indices is None:
+            slices_to_show = list(range(num_slices))
+        else:
+            slices_to_show = [idx for idx in slice_indices if 0 <= idx < num_slices]
+            if len(slices_to_show) != len(slice_indices):
+                invalid = [idx for idx in slice_indices if idx not in slices_to_show]
+                print(f"⚠️ Warning: Invalid slice indices {invalid} "
+                      f"(valid range: 0-{num_slices-1})")
+        
+        def get_slice(vol, idx, axis):
+            if axis == 0:
+                sl = vol[idx, :, :]
+            elif axis == 1:
+                sl = vol[:, idx, :]
+            elif axis == 2:
+                sl = vol[:, :, idx]
+            else:
+                raise ValueError("axis must be 0, 1, or 2")
+            return np.rot90(sl)
+        
+        # Get unique labels present in either mask for legend
+        unique_labels_gt = set(np.unique(gt_mask_vol).astype(int))
+        unique_labels_pred = set(np.unique(pred_mask_vol).astype(int))
+        unique_labels = sorted(unique_labels_gt.union(unique_labels_pred))
+        # Remove background (0) from legend
+        unique_labels = [l for l in unique_labels if l > 0]
+        
+        pdf = PdfPages(save_pdf_path) if save_pdf_path else None
+        
+        try:
+            for slice_idx in slices_to_show:
+                img_slice = get_slice(img_vol, slice_idx, axis)
+                gt_slice = get_slice(gt_mask_vol, slice_idx, axis)
+                pred_slice = get_slice(pred_mask_vol, slice_idx, axis)
+                
+                # Create figure with 3 panels + space for legend
+                fig = plt.figure(figsize=(18, 6))
+                gs = fig.add_gridspec(1, 4, width_ratios=[1, 1, 1, 0.4], hspace=0.3)
+                
+                ax_img = fig.add_subplot(gs[0])
+                ax_gt = fig.add_subplot(gs[1])
+                ax_pred = fig.add_subplot(gs[2])
+                ax_legend = fig.add_subplot(gs[3])
+                
+                # Image panel
+                ax_img.imshow(img_slice, cmap="gray")
+                ax_img.set_title(f"CT Image\n(slice {slice_idx})", fontsize=12)
+                ax_img.axis("off")
+                
+                # Ground truth panel
+                ax_gt.imshow(gt_slice, cmap=cmap_mask, norm=norm_mask)
+                ax_gt.set_title("Ground Truth Mask", fontsize=12)
+                ax_gt.axis("off")
+                
+                # Predicted mask panel
+                ax_pred.imshow(pred_slice, cmap=cmap_mask, norm=norm_mask)
+                ax_pred.set_title("Predicted Mask", fontsize=12)
+                ax_pred.axis("off")
+                
+                # Create legend with organ names
+                ax_legend.axis("off")
+                legend_patches = []
+                for label_idx in unique_labels:
+                    organ_name = index_to_organ.get(label_idx, f"Label {label_idx}")
+                    # Get color from colormap
+                    color = cmap_mask(norm_mask(label_idx))
+                    patch = mpatches.Patch(facecolor=color, edgecolor='black', 
+                                         linewidth=0.5, label=organ_name)
+                    legend_patches.append(patch)
+                
+                if legend_patches:
+                    ax_legend.legend(handles=legend_patches, loc='center left',
+                                   fontsize=9, framealpha=0.9)
+                    ax_legend.set_title("Organs", fontsize=11, pad=10)
+                
+                fig.suptitle(f"{case_id} - Slice {slice_idx}/{num_slices-1}", 
+                           fontsize=14, y=0.98)
+                fig.tight_layout(rect=[0, 0, 0.95, 0.96])
+                
+                if pdf is not None:
+                    pdf.savefig(fig, bbox_inches="tight")
+                
+                if show:
+                    plt.show()
+                    plt.close(fig)
+                else:
                     plt.close(fig)
         
         finally:
