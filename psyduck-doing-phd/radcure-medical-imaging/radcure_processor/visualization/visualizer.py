@@ -326,10 +326,32 @@ class MedicalImageVisualizer:
         if max_label <= 0:
             max_label = 1
         
+        # Find GTVp index if it exists
+        gtvp_index = organ_dict.get('GTVp', None)
+        
         # Create unified colormap (same for both masks)
+        # Use tab20 colormap but ensure GTVp is always RED
         base_cmap = plt.cm.get_cmap("tab20", max_label + 1)
         colors = base_cmap(np.arange(max_label + 1))
         colors[0, :] = [0.0, 0.0, 0.0, 0.0]  # transparent background
+        
+        # Force GTVp to be RED and ensure no other organ uses red
+        if gtvp_index is not None and gtvp_index <= max_label:
+            # Set GTVp to pure red: [1.0, 0.0, 0.0, 1.0]
+            colors[gtvp_index, :] = [1.0, 0.0, 0.0, 1.0]
+            
+            # Ensure no other organ uses red (replace any red-like colors)
+            red_threshold = 0.7  # Consider colors with R > 0.7 as "red-like"
+            for i in range(1, max_label + 1):
+                if i != gtvp_index and colors[i, 0] > red_threshold:
+                    # Replace with a different color from tab20, shifted
+                    # Use a different colormap or shift the index
+                    alt_cmap = plt.cm.get_cmap("Set3", max_label + 1)
+                    alt_colors = alt_cmap(np.arange(max_label + 1))
+                    # Use the alternative color but keep alpha
+                    colors[i, :3] = alt_colors[i, :3]
+                    colors[i, 3] = 1.0  # Keep full opacity
+        
         cmap_mask = ListedColormap(colors)
         boundaries = np.arange(-0.5, max_label + 1.5, 1)
         norm_mask = BoundaryNorm(boundaries, cmap_mask.N)
@@ -412,6 +434,9 @@ class MedicalImageVisualizer:
                     organ_name = index_to_organ.get(label_idx, f"Label {label_idx}")
                     # Get color from colormap
                     color = cmap_mask(norm_mask(label_idx))
+                    # Ensure GTVp is always red in legend too
+                    if organ_name == 'GTVp' and gtvp_index is not None:
+                        color = [1.0, 0.0, 0.0, 1.0]  # Pure red
                     patch = mpatches.Patch(facecolor=color, edgecolor='black', 
                                          linewidth=0.5, label=organ_name)
                     legend_patches.append(patch)

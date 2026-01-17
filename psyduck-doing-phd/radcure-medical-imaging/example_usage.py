@@ -137,3 +137,41 @@ DATASET_FOLDER = os.getenv('DATASET_FOLDER', '/path/to/DatasetXXX_TotalSegmentat
 #     show=False,  # Don't display, just save
 #     slice_indices=None  # Show all slices
 # )
+
+# ============================================================================
+# Dice Score Calculation Example: Slice-by-slice and Overall Metrics
+# ============================================================================
+# This example shows how to calculate Dice scores per slice per organ
+# and overall metrics for model evaluation.
+
+from radcure_processor.evaluation import SegmentationEvaluator
+
+# Example: Calculate Dice scores for a test case
+# evaluator = SegmentationEvaluator()
+# dice_df, metrics = evaluator.calculate_dice_slice_by_slice(
+#     case_id="case_0405",
+#     labels_folder=os.path.join(DATASET_FOLDER, "labelsTs"),
+#     predicted_labels_folder=os.path.join(DATASET_FOLDER, "labelsTs_predicted"),
+#     organ_dictionary_path=ORGAN_DICTIONARY_PATH,
+#     axis=2,  # 0=sagittal, 1=coronal, 2=axial (default)
+#     save_csv_path="case_0405_dice_scores.csv"  # Optional: save detailed results
+# )
+# 
+# # Print overall metrics
+# print(f"\nOverall Dice: {metrics['overall_dice']:.4f}")
+# print(f"Overall Dice (per-organ mean): {metrics['overall_dice_per_organ_mean']:.4f}")
+# print("\nPer-organ Dice scores:")
+# for organ_name, dice in metrics['per_organ_dice'].items():
+#     print(f"  {organ_name:30s}: {dice:.4f}")
+# 
+# # Access slice-by-slice results
+# print(f"\nTotal slice-organ combinations: {len(dice_df)}")
+# print("\nSample slice-by-slice results:")
+# print(dice_df.head(10))
+# 
+# # Filter by specific organ
+# gtvp_df = dice_df[dice_df['organ_name'] == 'GTVp']
+# if len(gtvp_df) > 0:
+#     print(f"\nGTVp Dice - Mean: {gtvp_df['dice_score'].mean():.4f}")
+#     print(f"GTVp Dice - Min: {gtvp_df['dice_score'].min():.4f}")
+#     print(f"GTVp Dice - Max: {gtvp_df['dice_score'].max():.4f}")
