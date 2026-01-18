@@ -4,7 +4,7 @@ A Python package for processing RADCURE DICOM cases with TotalSegmentator for tu
 
 ## Overview
 
-This package provides a structured, class-based approach to processing medical imaging data from the RADCURE dataset. It handles the entire pipeline from downloading cases from AWS S3, processing DICOM files, running TotalSegmentator segmentation, generating combined masks, and saving results in NIfTI format.
+This package provides a structured, class-based approach to processing medical imaging data from the RADCURE dataset. It handles the entire pipeline from downloading cases from AWS S3, processing DICOM files, running TotalSegmentator segmentation, generating combined masks, saving results in NIfTI format, training nnUNet models, and evaluating predictions with detailed visualizations.
 
 ## Features
 
@@ -429,6 +429,15 @@ python train_nnunet.py --step all
    - Computes Dice and Surface Dice metrics
    - Saves detailed results to CSV
 
+5. **Evaluation visualization**:
+   ```bash
+   python train_nnunet.py --step evaluation_visualization
+   ```
+   - Calculates Dice scores slice-by-slice per organ for each test case
+   - Generates visualization PDFs comparing ground truth vs predicted masks
+   - Saves results in `labelsTs_dice_and_viz/` folder
+   - Note: Requires the `evaluate` step to be completed first (predictions must exist)
+
 ### Output
 
 - **Logs**: Saved in `LOG_DIR` (default: `./logs/`)
@@ -440,6 +449,13 @@ python train_nnunet.py --step all
 - **Model**: Saved in `{NNUNET_RETRAIN_PATH}/nnUNet_results/`
 
 - **Predictions**: Saved in `{DATASET_FOLDER}/labelsTs_predicted/`
+
+- **Evaluation Visualizations**: Saved in `{DATASET_FOLDER}/labelsTs_dice_and_viz/`
+  - `dice_scores/`: CSV files with slice-by-slice Dice scores per case
+    - Format: `{case_id}_dice_scores.csv` with columns: `case_id`, `slice_idx`, `organ_name`, `organ_index`, `dice_score`
+  - `visualizations/`: PDF files with comparison visualizations per case
+    - Format: `{case_id}_comparison.pdf` showing CT image, ground truth mask, and predicted mask side-by-side
+    - Includes legend with organ names (GTVp always shown in red)
 
 For more details, see `nnunet_training/README.md`.
 
@@ -481,10 +497,11 @@ For more details, see `nnunet_training/README.md`.
    python train_nnunet.py --step all
    
    # Or run individual steps:
-   python train_nnunet.py --step prepare  # Prepare dataset
-   python train_nnunet.py --step plan      # Plan and preprocess
-   python train_nnunet.py --step train    # Train model
-   python train_nnunet.py --step evaluate # Evaluate model
+   python train_nnunet.py --step prepare                # Prepare dataset
+   python train_nnunet.py --step plan                    # Plan and preprocess
+   python train_nnunet.py --step train                   # Train model
+   python train_nnunet.py --step evaluate                # Evaluate model (generates predictions)
+   python train_nnunet.py --step evaluation_visualization # Generate Dice scores and visualizations
    ```
 
 ## Security

@@ -6,12 +6,14 @@ This script orchestrates the complete training workflow:
 2. Plan and preprocess
 3. Train model
 4. Predict and evaluate
+5. Evaluation visualization (Dice scores and comparison PDFs)
 
 Usage:
     python train_nnunet.py --step prepare
     python train_nnunet.py --step plan
     python train_nnunet.py --step train
     python train_nnunet.py --step evaluate
+    python train_nnunet.py --step evaluation_visualization
     python train_nnunet.py --step all  # Run all steps
 """
 
@@ -28,6 +30,7 @@ except ImportError:
 
 from nnunet_training import prepare_dataset, train_model, predict_and_evaluate
 from nnunet_training.config import TrainingConfig
+from nnunet_training.predict_and_evaluate import main_visualization
 
 
 def main():
@@ -37,9 +40,9 @@ def main():
     parser.add_argument(
         '--step',
         type=str,
-        choices=['prepare', 'plan', 'train', 'evaluate', 'all'],
+        choices=['prepare', 'plan', 'train', 'evaluate', 'evaluation_visualization', 'all'],
         required=True,
-        help='Which step to run: prepare, plan, train, evaluate, or all'
+        help='Which step to run: prepare, plan, train, evaluate, evaluation_visualization, or all'
     )
     parser.add_argument(
         '--num-processes',
@@ -111,6 +114,16 @@ def main():
             predict_and_evaluate.main()
         except Exception as e:
             print(f"✗ Evaluation failed: {e}")
+            sys.exit(1)
+        print()
+    
+    if args.step == 'evaluation_visualization' or args.step == 'all':
+        print(">>> STEP 5: Evaluation Visualization")
+        print("-" * 70)
+        try:
+            main_visualization()
+        except Exception as e:
+            print(f"✗ Evaluation visualization failed: {e}")
             sys.exit(1)
         print()
     

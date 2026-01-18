@@ -34,6 +34,15 @@ except ImportError as e:
     print("Install with: pip install p_tqdm git+https://github.com/google-deepmind/surface-distance.git")
     raise
 
+# Import visualization and evaluation modules
+try:
+    from radcure_processor.visualization import MedicalImageVisualizer
+    from radcure_processor.evaluation import SegmentationEvaluator
+except ImportError as e:
+    print(f"Warning: Could not import visualization/evaluation modules: {e}")
+    MedicalImageVisualizer = None
+    SegmentationEvaluator = None
+
 
 def add_nnunet_to_path(nnunet_path: str):
     """Add nnUNet to Python path."""
@@ -294,6 +303,140 @@ def main():
     
     print("\n" + "=" * 70)
     print("Evaluation complete!")
+    print("=" * 70)
+
+
+def evaluation_visualization(config: TrainingConfig):
+    """
+    Generate Dice score calculations and visualization comparisons for all test cases.
+    
+    This function:
+    1. Calculates Dice scores slice-by-slice per organ for each test case
+    2. Creates visualization PDFs comparing GT vs predicted masks
+    3. Saves all results in labelsTs_dice_and_viz folder
+    
+    Parameters
+    ----------
+    config : TrainingConfig
+        Configuration object
+    """
+    if MedicalImageVisualizer is None or SegmentationEvaluator is None:
+        raise ImportError(
+            "Visualization and evaluation modules not available. "
+            "Ensure radcure_processor is properly installed."
+        )
+    
+    paths = config.get_dataset_paths()
+    labels_ts_dir = Path(paths['labelsTs'])
+    images_ts_dir = Path(paths['imagesTs'])
+    pred_dir = Path(os.path.join(config.dataset_folder, 'labelsTs_predicted'))
+    output_dir = Path(os.path.join(config.dataset_folder, 'labelsTs_dice_and_viz'))
+    
+    # Validate paths
+    if not labels_ts_dir.exists():
+        raise FileNotFoundError(f"Ground truth labels folder not found: {labels_ts_dir}")
+    
+    if not pred_dir.exists():
+        raise FileNotFoundError(
+            f"Predictions folder not found: {pred_dir}. "
+            "Please run prediction step first."
+        )
+    
+    if not images_ts_dir.exists():
+        raise FileNotFoundError(f"Test images folder not found: {images_ts_dir}")
+    
+    # Create output directory
+    output_dir.mkdir(parents=True, exist_ok=True)
+    dice_output_dir = output_dir / 'dice_scores'
+    viz_output_dir = output_dir / 'visualizations'
+    dice_output_dir.mkdir(exist_ok=True)
+    viz_output_dir.mkdir(exist_ok=True)
+    
+    # Get all test cases
+    test_cases = [x.stem.split(".")[0] for x in labels_ts_dir.glob("*.nii.gz")]
+    
+    if len(test_cases) == 0:
+        raise ValueError(f"No test cases found in {labels_ts_dir}")
+    
+    print(f"\nGenerating evaluation visualizations for {len(test_cases)} test cases...")
+    print(f"  Ground truth: {labels_ts_dir}")
+    print(f"  Predictions: {pred_dir}")
+    print(f"  Output: {output_dir}")
+    print(f"  Organ dictionary: {config.organ_dictionary_path}")
+    
+    # Initialize evaluator and visualizer
+    evaluator = SegmentationEvaluator()
+    visualizer = MedicalImageVisualizer()
+    
+    # Process each test case
+    successful = 0
+    failed = []
+    
+    for case_id in tqdm(test_cases, desc="Processing cases"):
+        try:
+            # Calculate Dice scores
+            dice_csv_path = dice_output_dir / f"{case_id}_dice_scores.csv"
+            dice_df, metrics = evaluator.calculate_dice_slice_by_slice(
+                case_id=case_id,
+                labels_folder=str(labels_ts_dir),
+                predicted_labels_folder=str(pred_dir),
+                organ_dictionary_path=config.organ_dictionary_path,
+                axis=2,  # axial slices
+                save_csv_path=str(dice_csv_path)
+            )
+            
+            # Create visualization PDF
+            viz_pdf_path = viz_output_dir / f"{case_id}_comparison.pdf"
+            visualizer.visualize_prediction_comparison(
+                case_id=case_id,
+                images_folder=str(images_ts_dir),
+                labels_folder=str(labels_ts_dir),
+                predicted_labels_folder=str(pred_dir),
+                organ_dictionary_path=config.organ_dictionary_path,
+                axis=2,  # axial slices
+                save_pdf_path=str(viz_pdf_path),
+                show=False,  # Don't display, just save
+                slice_indices=None  # All slices
+            )
+            
+            successful += 1
+            
+        except Exception as e:
+            print(f"\n⚠️  Error processing {case_id}: {e}")
+            failed.append(case_id)
+            continue
+    
+    # Print summary
+    print("\n" + "=" * 70)
+    print("Evaluation Visualization Summary")
+    print("=" * 70)
+    print(f"Successfully processed: {successful}/{len(test_cases)} cases")
+    if failed:
+        print(f"Failed cases: {len(failed)}")
+        for case_id in failed:
+            print(f"  - {case_id}")
+    print(f"\nResults saved to: {output_dir}")
+    print(f"  - Dice scores: {dice_output_dir}")
+    print(f"  - Visualizations: {viz_output_dir}")
+    print("=" * 70)
+    
+    return output_dir
+
+
+def main_visualization():
+    """Main function for evaluation visualization."""
+    print("=" * 70)
+    print("nnUNet Evaluation Visualization")
+    print("=" * 70)
+    
+    # Load configuration
+    config = TrainingConfig()
+    
+    # Run evaluation visualization
+    output_dir = evaluation_visualization(config)
+    
+    print("\n" + "=" * 70)
+    print("Evaluation visualization complete!")
     print("=" * 70)
 
 
