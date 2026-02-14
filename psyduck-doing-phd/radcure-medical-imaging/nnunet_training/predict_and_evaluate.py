@@ -25,14 +25,9 @@ except ImportError:
 
 from nnunet_training.config import TrainingConfig
 
-try:
-    from tqdm import tqdm
-    from p_tqdm import p_map
-    from surface_distance import compute_surface_distances, compute_surface_dice_at_tolerance
-except ImportError as e:
-    print(f"Warning: Required packages not installed: {e}")
-    print("Install with: pip install p_tqdm git+https://github.com/google-deepmind/surface-distance.git")
-    raise
+from tqdm import tqdm
+from p_tqdm import p_map
+from surface_distance import compute_surface_distances, compute_surface_dice_at_tolerance
 
 # Import visualization and evaluation modules
 try:
@@ -348,8 +343,10 @@ def evaluation_visualization(config: TrainingConfig):
     # Create output directory
     output_dir.mkdir(parents=True, exist_ok=True)
     dice_output_dir = output_dir / 'dice_scores'
+    surface_dice_output_dir = output_dir / 'surface_dice_scores'
     viz_output_dir = output_dir / 'visualizations'
     dice_output_dir.mkdir(exist_ok=True)
+    surface_dice_output_dir.mkdir(exist_ok=True)
     viz_output_dir.mkdir(exist_ok=True)
     
     # Get all test cases
@@ -363,6 +360,7 @@ def evaluation_visualization(config: TrainingConfig):
     print(f"  Predictions: {pred_dir}")
     print(f"  Output: {output_dir}")
     print(f"  Organ dictionary: {config.organ_dictionary_path}")
+    print(f"  Surface DICE tolerance: {getattr(config, 'surface_distance_tolerance', 3.0)} mm")
     
     # Initialize evaluator and visualizer
     evaluator = SegmentationEvaluator()
@@ -372,11 +370,16 @@ def evaluation_visualization(config: TrainingConfig):
     successful = 0
     failed = []
     
+    # Get spacing and tolerance for Surface DICE
+    # Default spacing (1.0, 1.0, 1.0) - should be adjusted based on actual image spacing
+    spacing_mm = getattr(config, 'voxel_spacing_mm', (1.0, 1.0, 1.0))
+    tolerance_mm = getattr(config, 'surface_distance_tolerance', 3.0)
+    
     for case_id in tqdm(test_cases, desc="Processing cases"):
         try:
             # Calculate Dice scores
             dice_csv_path = dice_output_dir / f"{case_id}_dice_scores.csv"
-            dice_df, metrics = evaluator.calculate_dice_slice_by_slice(
+            dice_df, dice_metrics = evaluator.calculate_dice_slice_by_slice(
                 case_id=case_id,
                 labels_folder=str(labels_ts_dir),
                 predicted_labels_folder=str(pred_dir),
@@ -384,6 +387,28 @@ def evaluation_visualization(config: TrainingConfig):
                 axis=2,  # axial slices
                 save_csv_path=str(dice_csv_path)
             )
+            
+            # Calculate Surface Dice scores
+            surface_dice_csv_path = surface_dice_output_dir / f"{case_id}_surface_dice_scores.csv"
+            try:
+                surface_dice_df, surface_dice_metrics = evaluator.calculate_surface_dice_slice_by_slice(
+                    case_id=case_id,
+                    labels_folder=str(labels_ts_dir),
+                    predicted_labels_folder=str(pred_dir),
+                    organ_dictionary_path=config.organ_dictionary_path,
+                    axis=2,  # axial slices
+                    spacing_mm=spacing_mm,
+                    tolerance_mm=tolerance_mm,
+                    save_csv_path=str(surface_dice_csv_path)
+                )
+            except ImportError as e:
+                print(f"\n⚠️  Surface DICE calculation skipped for {case_id}: {e}")
+                surface_dice_df = None
+                surface_dice_metrics = None
+            except Exception as e:
+                print(f"\n⚠️  Error calculating Surface DICE for {case_id}: {e}")
+                surface_dice_df = None
+                surface_dice_metrics = None
             
             # Create visualization PDF
             viz_pdf_path = viz_output_dir / f"{case_id}_comparison.pdf"
@@ -417,6 +442,7 @@ def evaluation_visualization(config: TrainingConfig):
             print(f"  - {case_id}")
     print(f"\nResults saved to: {output_dir}")
     print(f"  - Dice scores: {dice_output_dir}")
+    print(f"  - Surface Dice scores: {surface_dice_output_dir}")
     print(f"  - Visualizations: {viz_output_dir}")
     print("=" * 70)
     

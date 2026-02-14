@@ -357,7 +357,7 @@ This makes it easy to identify and troubleshoot problematic cases.
 ### nnUNet Training Dependencies
 
 - `p_tqdm` - Parallel progress bars
-- `surface-distance` - Surface distance metrics (install from: `git+https://github.com/google-deepmind/surface-distance.git`)
+- `surface-distance` - Surface distance metrics (automatically installed via requirements.txt)
 - `nnUNet` - Medical image segmentation framework (see [nnUNet documentation](https://github.com/MIC-DKFZ/nnUNet))
 
 ## nnUNet Training
@@ -366,11 +366,11 @@ After processing and splitting your dataset, you can train an nnUNet model using
 
 ### Setup
 
-1. **Install additional dependencies**:
+1. **Install dependencies** (if not already installed):
    ```bash
-   pip install p_tqdm
-   pip install git+https://github.com/google-deepmind/surface-distance.git
+   pip install -r requirements.txt
    ```
+   Note: All dependencies including `surface-distance` are included in `requirements.txt` and will be installed automatically.
 
 2. **Configure environment variables**:
    ```bash

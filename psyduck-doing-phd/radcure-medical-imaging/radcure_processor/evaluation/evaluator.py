@@ -7,14 +7,15 @@ import os
 from typing import Optional, Dict, Tuple, Union
 from radcure_processor.io.nifti_handler import NIfTIHandler
 
-# Try to import surface_distance for Surface DICE calculation
+# Import surface_distance for Surface DICE calculation (required dependency)
 try:
     from surface_distance import compute_surface_distances, compute_surface_dice_at_tolerance
-    SURFACE_DICE_AVAILABLE = True
-except ImportError:
-    SURFACE_DICE_AVAILABLE = False
-    print("Warning: surface_distance package not available. Surface DICE calculation will not work.")
-    print("Install with: pip install git+https://github.com/google-deepmind/surface-distance.git")
+except ImportError as e:
+    raise ImportError(
+        "surface_distance package is required but not installed. "
+        "Install with: pip install git+https://github.com/google-deepmind/surface-distance.git "
+        "or: pip install -r requirements.txt"
+    ) from e
 
 
 class SegmentationEvaluator:
@@ -149,12 +150,6 @@ class SegmentationEvaluator:
             Dictionary mapping organ_name (or "Label_{index}") -> Surface DICE score.
             Also includes 'overall_surface_dice' key with mean Surface DICE across all organs.
         """
-        if not SURFACE_DICE_AVAILABLE:
-            raise ImportError(
-                "surface_distance package is required for Surface DICE calculation. "
-                "Install with: pip install git+https://github.com/google-deepmind/surface-distance.git"
-            )
-        
         # Load masks if paths are provided
         if isinstance(gt_mask, str):
             gt_mask_vol = NIfTIHandler.load_nii_mask(gt_mask)
@@ -402,5 +397,211 @@ class SegmentationEvaluator:
         if save_csv_path:
             df.to_csv(save_csv_path, index=False)
             print(f"✓ Detailed Dice scores saved to: {save_csv_path}")
+        
+        return df, overall_metrics
+    
+    @staticmethod
+    def calculate_surface_dice_slice_by_slice(
+        case_id: str,
+        labels_folder: str,
+        predicted_labels_folder: str,
+        organ_dictionary_path: str,
+        axis: int = 2,
+        spacing_mm: Tuple[float, float, float] = (1.0, 1.0, 1.0),
+        tolerance_mm: float = 3.0,
+        save_csv_path: Optional[str] = None
+    ) -> Tuple[pd.DataFrame, Dict[str, float]]:
+        """
+        Calculate Surface Dice scores slice-by-slice per organ and overall metrics.
+        
+        Note: Surface DICE is typically calculated on 3D volumes. This function
+        calculates it per 2D slice for consistency with slice-by-slice evaluation.
+        For more accurate Surface DICE, consider using calculate_surface_dice() on the full volume.
+        
+        Parameters
+        ----------
+        case_id : str
+            Case identifier (e.g., "case_0405")
+        labels_folder : str
+            Path to folder containing ground truth labels (e.g., "labelsTs")
+        predicted_labels_folder : str
+            Path to folder containing predicted labels (e.g., "labelsTs_predicted")
+        organ_dictionary_path : str
+            Path to JSON file containing organ dictionary mapping organ names to indices
+        axis : int
+            Axis to slice along: 0 = sagittal, 1 = coronal, 2 = axial (default)
+        spacing_mm : tuple of float, optional
+            Voxel spacing in mm (x, y, z). Default is (1.0, 1.0, 1.0).
+            Important: Use correct spacing for accurate Surface DICE calculation.
+            For 2D slices, only the relevant spacing dimensions are used.
+        tolerance_mm : float, optional
+            Distance tolerance in mm for Surface DICE calculation. Default is 3.0 mm.
+        save_csv_path : str, optional
+            If provided, saves detailed slice-by-slice results to CSV
+        
+        Returns
+        -------
+        Tuple[pd.DataFrame, Dict[str, float]]
+            - DataFrame with columns: slice_idx, organ_name, organ_index, surface_dice_score
+            - Dictionary with overall metrics:
+              - 'overall_surface_dice': Overall Surface Dice across all organs and slices
+              - 'per_organ_surface_dice': Dict mapping organ_name -> overall Surface Dice for that organ
+        """
+        # Load organ dictionary
+        if not os.path.exists(organ_dictionary_path):
+            raise FileNotFoundError(
+                f"Organ dictionary not found at {organ_dictionary_path}"
+            )
+        
+        with open(organ_dictionary_path, 'r') as f:
+            organ_dict: Dict[str, int] = json.load(f)
+        
+        # Invert dictionary: {organ_name: index} -> {index: organ_name}
+        index_to_organ: Dict[int, str] = {v: k for k, v in organ_dict.items()}
+        
+        # Construct file paths
+        label_path = os.path.join(labels_folder, f"{case_id}.nii.gz")
+        predicted_path = os.path.join(predicted_labels_folder, f"{case_id}.nii.gz")
+        
+        # Check if files exist
+        for path, name in [(label_path, "ground truth"), (predicted_path, "predicted")]:
+            if not os.path.exists(path):
+                raise FileNotFoundError(f"{name} file not found: {path}")
+        
+        # Load volumes
+        gt_mask_vol = NIfTIHandler.load_nii_mask(label_path)
+        pred_mask_vol = NIfTIHandler.load_nii_mask(predicted_path)
+        
+        # Check shapes
+        if gt_mask_vol.shape != pred_mask_vol.shape:
+            raise ValueError(
+                f"Shape mismatch: GT {gt_mask_vol.shape} vs Pred {pred_mask_vol.shape}"
+            )
+        
+        num_slices = gt_mask_vol.shape[axis]
+        
+        def get_slice(vol, idx, axis):
+            if axis == 0:
+                sl = vol[idx, :, :]
+            elif axis == 1:
+                sl = vol[:, idx, :]
+            elif axis == 2:
+                sl = vol[:, :, idx]
+            else:
+                raise ValueError("axis must be 0, 1, or 2")
+            return sl
+        
+        # Get 2D spacing for slice-based Surface DICE calculation
+        # For axis 0 (sagittal): use y, z spacing
+        # For axis 1 (coronal): use x, z spacing
+        # For axis 2 (axial): use x, y spacing
+        if axis == 0:
+            slice_spacing = (spacing_mm[1], spacing_mm[2])
+        elif axis == 1:
+            slice_spacing = (spacing_mm[0], spacing_mm[2])
+        else:  # axis == 2
+            slice_spacing = (spacing_mm[0], spacing_mm[1])
+        
+        # Get all unique organ indices present in either mask
+        unique_labels_gt = set(np.unique(gt_mask_vol).astype(int))
+        unique_labels_pred = set(np.unique(pred_mask_vol).astype(int))
+        unique_labels = sorted(unique_labels_gt.union(unique_labels_pred))
+        # Remove background (0) if present
+        unique_labels = [l for l in unique_labels if l > 0]
+        
+        # Calculate Surface Dice slice-by-slice per organ
+        results = []
+        
+        for slice_idx in range(num_slices):
+            gt_slice = get_slice(gt_mask_vol, slice_idx, axis)
+            pred_slice = get_slice(pred_mask_vol, slice_idx, axis)
+            
+            for organ_idx in unique_labels:
+                organ_name = index_to_organ.get(organ_idx, f"Label_{organ_idx}")
+                
+                # Create binary masks for this organ
+                gt_binary = (gt_slice == organ_idx).astype(bool)
+                pred_binary = (pred_slice == organ_idx).astype(bool)
+                
+                # Calculate Surface Dice for this organ on this slice
+                # Handle edge cases
+                if not gt_binary.any() and not pred_binary.any():
+                    # Both empty - perfect match
+                    surface_dice = 1.0
+                elif gt_binary.any() and not pred_binary.any():
+                    # GT exists but prediction is empty
+                    surface_dice = 0.0
+                elif not gt_binary.any() and pred_binary.any():
+                    # Prediction exists but GT is empty
+                    surface_dice = 0.0
+                else:
+                    # Both exist - calculate Surface DICE on 2D slice
+                    try:
+                        surface_distances = compute_surface_distances(
+                            gt_binary,
+                            pred_binary,
+                            slice_spacing
+                        )
+                        surface_dice = compute_surface_dice_at_tolerance(
+                            surface_distances,
+                            tolerance_mm
+                        )
+                    except Exception as e:
+                        print(f"Warning: Could not calculate Surface DICE for {organ_name} on slice {slice_idx}: {e}")
+                        surface_dice = np.nan
+                
+                results.append({
+                    'case_id': case_id,
+                    'slice_idx': slice_idx,
+                    'organ_name': organ_name,
+                    'organ_index': organ_idx,
+                    'surface_dice_score': surface_dice
+                })
+        
+        # Create DataFrame
+        df = pd.DataFrame(results)
+        
+        # Calculate overall metrics
+        overall_metrics = {}
+        
+        # Per-organ overall Surface Dice (mean across all slices for each organ)
+        per_organ_surface_dice = {}
+        for organ_name in df['organ_name'].unique():
+            organ_df = df[df['organ_name'] == organ_name]
+            # Filter out NaN values
+            organ_slices = []
+            for slice_idx in organ_df['slice_idx'].unique():
+                slice_organ_df = organ_df[organ_df['slice_idx'] == slice_idx]
+                if len(slice_organ_df) > 0:
+                    surface_dice_val = slice_organ_df['surface_dice_score'].iloc[0]
+                    if not np.isnan(surface_dice_val):
+                        organ_slices.append(surface_dice_val)
+            
+            if len(organ_slices) > 0:
+                per_organ_surface_dice[organ_name] = np.mean(organ_slices)
+            else:
+                per_organ_surface_dice[organ_name] = np.nan
+        
+        overall_metrics['per_organ_surface_dice'] = per_organ_surface_dice
+        
+        # Overall Surface Dice across all organs and slices
+        # Exclude NaN values
+        df_valid = df[~df['surface_dice_score'].isna()]
+        if len(df_valid) > 0:
+            overall_metrics['overall_surface_dice'] = df_valid['surface_dice_score'].mean()
+        else:
+            overall_metrics['overall_surface_dice'] = np.nan
+        
+        # Option 2: Mean of per-organ means (organ-level average)
+        organ_means = [v for v in per_organ_surface_dice.values() if not np.isnan(v)]
+        if len(organ_means) > 0:
+            overall_metrics['overall_surface_dice_per_organ_mean'] = np.mean(organ_means)
+        else:
+            overall_metrics['overall_surface_dice_per_organ_mean'] = np.nan
+        
+        # Save to CSV if requested
+        if save_csv_path:
+            df.to_csv(save_csv_path, index=False)
+            print(f"✓ Detailed Surface Dice scores saved to: {save_csv_path}")
         
         return df, overall_metrics

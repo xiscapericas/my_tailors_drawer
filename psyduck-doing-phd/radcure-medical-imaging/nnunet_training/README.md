@@ -15,11 +15,11 @@ nnunet_training/
 
 ## Setup
 
-1. **Install dependencies**:
+1. **Install dependencies** (if not already installed):
    ```bash
-   pip install p_tqdm
-   pip install git+https://github.com/google-deepmind/surface-distance.git
+   pip install -r requirements.txt
    ```
+   Note: All dependencies including `surface-distance` are included in `requirements.txt` and will be installed automatically.
 
 2. **Set up environment variables**:
    ```bash

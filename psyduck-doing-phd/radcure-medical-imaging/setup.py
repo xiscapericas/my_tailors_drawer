@@ -27,6 +27,9 @@ setup(
         'opencv-python>=4.5.0',
         'python-dotenv>=0.19.0',
         'p-tqdm>=1.4.0',
+        'tqdm>=4.64.0',
+        'seaborn>=0.12.0',
+        'surface-distance @ git+https://github.com/google-deepmind/surface-distance.git',
     ],
     classifiers=[
         'Development Status :: 3 - Alpha',
