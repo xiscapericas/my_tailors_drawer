@@ -4,12 +4,233 @@ import numpy as np
 import pandas as pd
 import json
 import os
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, Union
 from radcure_processor.io.nifti_handler import NIfTIHandler
+
+# Try to import surface_distance for Surface DICE calculation
+try:
+    from surface_distance import compute_surface_distances, compute_surface_dice_at_tolerance
+    SURFACE_DICE_AVAILABLE = True
+except ImportError:
+    SURFACE_DICE_AVAILABLE = False
+    print("Warning: surface_distance package not available. Surface DICE calculation will not work.")
+    print("Install with: pip install git+https://github.com/google-deepmind/surface-distance.git")
 
 
 class SegmentationEvaluator:
     """Evaluation utilities for segmentation masks."""
+    
+    @staticmethod
+    def calculate_dice(
+        gt_mask: Union[np.ndarray, str],
+        pred_mask: Union[np.ndarray, str],
+        organ_dictionary_path: Optional[str] = None,
+        spacing_mm: Tuple[float, float, float] = (1.0, 1.0, 1.0)
+    ) -> Dict[str, float]:
+        """
+        Calculate DICE score per organ for entire 3D volume.
+        
+        This function calculates DICE scores for each organ present in the masks.
+        It works on the entire 3D volume (not slice-by-slice).
+        
+        Parameters
+        ----------
+        gt_mask : np.ndarray or str
+            Ground truth mask as numpy array or path to NIfTI file
+        pred_mask : np.ndarray or str
+            Predicted mask as numpy array or path to NIfTI file
+        organ_dictionary_path : str, optional
+            Path to JSON file containing organ dictionary mapping organ names to indices.
+            If provided, results will include organ names. If None, results use label indices.
+        spacing_mm : tuple of float, optional
+            Voxel spacing in mm (x, y, z). Default is (1.0, 1.0, 1.0).
+            Only used for Surface DICE calculation.
+        
+        Returns
+        -------
+        Dict[str, float]
+            Dictionary mapping organ_name (or "Label_{index}") -> DICE score.
+            Also includes 'overall_dice' key with mean DICE across all organs.
+        """
+        # Load masks if paths are provided
+        if isinstance(gt_mask, str):
+            gt_mask_vol = NIfTIHandler.load_nii_mask(gt_mask)
+        else:
+            gt_mask_vol = gt_mask.copy()
+        
+        if isinstance(pred_mask, str):
+            pred_mask_vol = NIfTIHandler.load_nii_mask(pred_mask)
+        else:
+            pred_mask_vol = pred_mask.copy()
+        
+        # Check shapes
+        if gt_mask_vol.shape != pred_mask_vol.shape:
+            raise ValueError(
+                f"Shape mismatch: GT {gt_mask_vol.shape} vs Pred {pred_mask_vol.shape}"
+            )
+        
+        # Load organ dictionary if provided
+        index_to_organ: Dict[int, str] = {}
+        if organ_dictionary_path and os.path.exists(organ_dictionary_path):
+            with open(organ_dictionary_path, 'r') as f:
+                organ_dict: Dict[str, int] = json.load(f)
+            index_to_organ = {v: k for k, v in organ_dict.items()}
+        
+        def dice_score_binary(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+            """Calculate binary Dice score."""
+            intersect = np.sum(y_true * y_pred)
+            denominator = np.sum(y_true) + np.sum(y_pred)
+            if denominator == 0:
+                return 1.0 if intersect == 0 else 0.0  # Both empty = perfect match
+            return (2 * intersect) / (denominator + 1e-6)
+        
+        # Get all unique organ indices present in either mask
+        unique_labels_gt = set(np.unique(gt_mask_vol).astype(int))
+        unique_labels_pred = set(np.unique(pred_mask_vol).astype(int))
+        unique_labels = sorted(unique_labels_gt.union(unique_labels_pred))
+        # Remove background (0) if present
+        unique_labels = [l for l in unique_labels if l > 0]
+        
+        # Calculate DICE per organ
+        dice_scores = {}
+        
+        for organ_idx in unique_labels:
+            organ_name = index_to_organ.get(organ_idx, f"Label_{organ_idx}")
+            
+            # Create binary masks for this organ
+            gt_binary = (gt_mask_vol == organ_idx).astype(float)
+            pred_binary = (pred_mask_vol == organ_idx).astype(float)
+            
+            # Calculate DICE for this organ
+            dice = dice_score_binary(gt_binary, pred_binary)
+            dice_scores[organ_name] = dice
+        
+        # Calculate overall DICE (mean across all organs)
+        if len(dice_scores) > 0:
+            dice_scores['overall_dice'] = np.mean(list(dice_scores.values()))
+        else:
+            dice_scores['overall_dice'] = np.nan
+        
+        return dice_scores
+    
+    @staticmethod
+    def calculate_surface_dice(
+        gt_mask: Union[np.ndarray, str],
+        pred_mask: Union[np.ndarray, str],
+        organ_dictionary_path: Optional[str] = None,
+        spacing_mm: Tuple[float, float, float] = (1.0, 1.0, 1.0),
+        tolerance_mm: float = 3.0
+    ) -> Dict[str, float]:
+        """
+        Calculate Surface DICE score per organ for entire 3D volume.
+        
+        Surface DICE measures the overlap of surface boundaries rather than volumes.
+        It's more sensitive to boundary accuracy than regular DICE.
+        
+        Parameters
+        ----------
+        gt_mask : np.ndarray or str
+            Ground truth mask as numpy array or path to NIfTI file
+        pred_mask : np.ndarray or str
+            Predicted mask as numpy array or path to NIfTI file
+        organ_dictionary_path : str, optional
+            Path to JSON file containing organ dictionary mapping organ names to indices.
+            If provided, results will include organ names. If None, results use label indices.
+        spacing_mm : tuple of float, optional
+            Voxel spacing in mm (x, y, z). Default is (1.0, 1.0, 1.0).
+            Important: Use correct spacing for accurate Surface DICE calculation.
+        tolerance_mm : float, optional
+            Distance tolerance in mm for Surface DICE calculation. Default is 3.0 mm.
+            This is the maximum distance from the surface that is considered acceptable.
+        
+        Returns
+        -------
+        Dict[str, float]
+            Dictionary mapping organ_name (or "Label_{index}") -> Surface DICE score.
+            Also includes 'overall_surface_dice' key with mean Surface DICE across all organs.
+        """
+        if not SURFACE_DICE_AVAILABLE:
+            raise ImportError(
+                "surface_distance package is required for Surface DICE calculation. "
+                "Install with: pip install git+https://github.com/google-deepmind/surface-distance.git"
+            )
+        
+        # Load masks if paths are provided
+        if isinstance(gt_mask, str):
+            gt_mask_vol = NIfTIHandler.load_nii_mask(gt_mask)
+        else:
+            gt_mask_vol = gt_mask.copy()
+        
+        if isinstance(pred_mask, str):
+            pred_mask_vol = NIfTIHandler.load_nii_mask(pred_mask)
+        else:
+            pred_mask_vol = pred_mask.copy()
+        
+        # Check shapes
+        if gt_mask_vol.shape != pred_mask_vol.shape:
+            raise ValueError(
+                f"Shape mismatch: GT {gt_mask_vol.shape} vs Pred {pred_mask_vol.shape}"
+            )
+        
+        # Load organ dictionary if provided
+        index_to_organ: Dict[int, str] = {}
+        if organ_dictionary_path and os.path.exists(organ_dictionary_path):
+            with open(organ_dictionary_path, 'r') as f:
+                organ_dict: Dict[str, int] = json.load(f)
+            index_to_organ = {v: k for k, v in organ_dict.items()}
+        
+        # Get all unique organ indices present in either mask
+        unique_labels_gt = set(np.unique(gt_mask_vol).astype(int))
+        unique_labels_pred = set(np.unique(pred_mask_vol).astype(int))
+        unique_labels = sorted(unique_labels_gt.union(unique_labels_pred))
+        # Remove background (0) if present
+        unique_labels = [l for l in unique_labels if l > 0]
+        
+        # Calculate Surface DICE per organ
+        surface_dice_scores = {}
+        
+        for organ_idx in unique_labels:
+            organ_name = index_to_organ.get(organ_idx, f"Label_{organ_idx}")
+            
+            # Create binary masks for this organ
+            gt_binary = (gt_mask_vol == organ_idx).astype(bool)
+            pred_binary = (pred_mask_vol == organ_idx).astype(bool)
+            
+            # Handle edge cases
+            if not gt_binary.any() and not pred_binary.any():
+                # Both empty - perfect match
+                surface_dice_scores[organ_name] = 1.0
+            elif gt_binary.any() and not pred_binary.any():
+                # GT exists but prediction is empty
+                surface_dice_scores[organ_name] = 0.0
+            elif not gt_binary.any() and pred_binary.any():
+                # Prediction exists but GT is empty
+                surface_dice_scores[organ_name] = 0.0
+            else:
+                # Both exist - calculate Surface DICE
+                try:
+                    surface_distances = compute_surface_distances(
+                        gt_binary, 
+                        pred_binary, 
+                        spacing_mm
+                    )
+                    surface_dice = compute_surface_dice_at_tolerance(
+                        surface_distances,
+                        tolerance_mm
+                    )
+                    surface_dice_scores[organ_name] = surface_dice
+                except Exception as e:
+                    print(f"Warning: Could not calculate Surface DICE for {organ_name}: {e}")
+                    surface_dice_scores[organ_name] = np.nan
+        
+        # Calculate overall Surface DICE (mean across all organs)
+        valid_scores = [v for v in surface_dice_scores.values() if not np.isnan(v)]
+        if len(valid_scores) > 0:
+            surface_dice_scores['overall_surface_dice'] = np.mean(valid_scores)
+        else:
+            surface_dice_scores['overall_surface_dice'] = np.nan
+        
+        return surface_dice_scores
     
     @staticmethod
     def calculate_dice_slice_by_slice(
