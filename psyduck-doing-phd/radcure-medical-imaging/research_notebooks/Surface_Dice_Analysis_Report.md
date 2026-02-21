@@ -29,8 +29,12 @@ Dice measures volumetric overlap between prediction and ground truth:
 
 Dice = 2 \|P ∩ G\| / (\|P\| + \|G\|)
 
-It penalizes: - Boundary inaccuracies - Under-segmentation -
-Over-segmentation - Spatial misalignment
+It penalizes:
+
+- Boundary inaccuracies
+- Under-segmentation
+- Over-segmentation
+- Spatial misalignment
 
 Dice is sensitive to small contour differences and may penalize
 predictions even when spatial localization is clinically acceptable.
@@ -45,9 +49,11 @@ boundaries within a predefined spatial tolerance.
 Instead of evaluating volumetric overlap, it evaluates how much of the
 surfaces lie within a specified distance from each other.
 
-Surface Dice: - Is tolerant to small boundary variations within
-tolerance - Penalizes large boundary displacements - Captures spatial
-proximity even when volumetric overlap is limited
+Surface Dice:
+
+- Is tolerant to small boundary variations within tolerance
+- Penalizes large boundary displacements
+- Captures spatial proximity even when volumetric overlap is limited
 
 Thus, Surface Dice evaluates boundary agreement rather than pure volume
 overlap.
@@ -60,7 +66,7 @@ overlap.
 
 A linear regression analysis between Dice and Surface Dice shows:
 
--   R² = 0.71
+- R² = 0.71
 
 This indicates a strong positive correlation, meaning both metrics
 evaluate related aspects of segmentation performance. However, 29% of
@@ -69,23 +75,10 @@ interchangeable and capture complementary information.
 
 ------------------------------------------------------------------------
 
-### 3.2 Distribution Comparison (Correlation Matrix)
+### 3.2 Central Tendency Comparison
 
-Below is the correlation matrix between Dice and Surface Dice:
-
-                     Dice   Surface Dice
-  ------------------ ------ --------------
-  **Dice**           1.00   0.84
-  **Surface Dice**   0.84   1.00
-
-(Note: Correlation derived from R² = 0.71 → r ≈ 0.84)
-
-------------------------------------------------------------------------
-
-### 3.3 Central Tendency Comparison
-
--   Median Dice: 0.5878\
--   Median Surface Dice: 0.5776
+- Median Dice: 0.5878
+- Median Surface Dice: 0.5776
 
 Despite some large improvements in specific cases, the median Surface
 Dice is slightly lower than Dice. This indicates that the apparent
@@ -103,19 +96,26 @@ percentage improvement when interpreting results.
 
 Cases were grouped into four performance categories:
 
--   LOW: 0--0.3\
--   MIDDLE: 0.31--0.5\
--   GOOD: 0.51--0.7\
--   ABOVE: 0.71--1
+- LOW: 0–0.3
+- MIDDLE: 0.31–0.5
+- GOOD: 0.51–0.7
+- ABOVE: 0.71–1
 
-Surface Dice redistributed cases rather than uniformly increasing
-performance:
+**Contingency table:** Dice category (rows) vs Surface Dice category (columns) (`dice_gtv_cat` × `sur_dice_gtv_cat`):
 
--   17 cases improved category\
--   14 cases decreased category
+| dice_gtv_cat | ABOVE | GOOD | LOW | MIDDLE |
+|--------------|-------|------|-----|--------|
+| ABOVE        | 17    | 6    | 0   | 0      |
+| GOOD         | 8     | 7    | 1   | 6      |
+| LOW          | 0     | 0    | 11  | 3      |
+| MIDDLE       | 0     | 6    | 1   | 6      |
 
-This near symmetry indicates that Surface Dice is not systematically
-more optimistic but instead shifts performance characterization.
+Surface Dice redistributed cases rather than uniformly increasing performance:
+
+- 17 cases improved category
+- 14 cases decreased category
+
+This near symmetry indicates that Surface Dice is not systematically more optimistic but instead shifts performance characterization.
 
 ------------------------------------------------------------------------
 
@@ -123,12 +123,10 @@ more optimistic but instead shifts performance characterization.
 
 ### 5.1 Large Ground Truth with Under-Segmentation
 
-In cases where the ground truth volume is substantially larger than the
-prediction:
+In cases where the ground truth volume is substantially larger than the prediction:
 
--   Dice may remain moderate due to partial overlap.
--   Surface Dice decreases because large portions of the ground truth
-    boundary are far from the predicted surface.
+- Dice may remain moderate due to partial overlap.
+- Surface Dice decreases because large portions of the ground truth boundary are far from the predicted surface.
 
 Surface Dice penalizes large boundary discrepancies more strongly than
 Dice.
@@ -137,11 +135,12 @@ Dice.
 
 ### 5.2 Spatially Close but Poorly Overlapping Tumors
 
-In cases where: - The tumor is slightly displaced - Or mirrored but
-spatially close
+In cases where:
 
-Dice can be very low due to limited volumetric overlap.\
-Surface Dice may remain moderate if boundaries are within tolerance.
+- The tumor is slightly displaced, or
+- Mirrored but spatially close
+
+Dice can be very low due to limited volumetric overlap. Surface Dice may remain moderate if boundaries are within tolerance.
 
 This demonstrates that Surface Dice captures spatial proximity even when
 overlap is poor.
@@ -152,10 +151,12 @@ overlap is poor.
 
 Across high-performing cases:
 
--   Tumor detected in all slices\
--   Prediction consistently inside ground truth
+- Tumor detected in all slices
+- Prediction consistently inside ground truth
 
-Both metrics perform well when: - Z-extent is correctly captured\
+Both metrics perform well when:
+
+- Z-extent is correctly captured
 - Tumor presence is consistently detected
 
 Improving slice-level detection and spatial extent modeling may yield
