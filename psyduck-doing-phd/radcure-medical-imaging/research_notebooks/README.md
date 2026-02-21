@@ -21,4 +21,4 @@ Notebooks in this folder are used to:
 ## Examples
 
 - `compare_dice_surface_dice.ipynb` - Comparison of DICE vs Surface DICE metrics
-- Future notebooks for feature development and analysis
+- `background_head_organs_debug.ipynb` - Debug and fix background / anatomical_region / organs / other-tissue mask pipeline

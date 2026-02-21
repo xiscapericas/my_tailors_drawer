@@ -1,4 +1,4 @@
-"""Image processing utilities for head/background detection."""
+"""Image processing utilities for background and anatomical region detection."""
 
 import numpy as np
 from scipy.ndimage import gaussian_filter, binary_fill_holes, distance_transform_edt
@@ -24,6 +24,10 @@ class ImageProcessor:
         """
         Generate background mask from 2D CT slice.
         
+        Detects patient outline (anatomical region: head or body) vs background;
+        the exact body region is not distinguished. Caller maps to indices
+        (e.g. 0 = background, 1 = anatomical_region).
+        
         Parameters
         ----------
         img : np.ndarray
@@ -48,7 +52,7 @@ class ImageProcessor:
         Returns
         -------
         np.ndarray
-            Background mask (True = background, False = head)
+            Boolean mask: True = background (outside patient), False = anatomical region (patient outline).
         """
         if not isinstance(img, np.ndarray):
             raise TypeError("img must be a numpy.ndarray")

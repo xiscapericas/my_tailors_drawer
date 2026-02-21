@@ -26,7 +26,8 @@ class OrganDictionary:
         else:
             self.dictionary = {
                 'background': 0,
-                'other-tissue': 1
+                'anatomical_region': 1,
+                'other-tissue': 2
             }
             if dictionary_path:
                 print(f"Dictionary file not found, starting with default")

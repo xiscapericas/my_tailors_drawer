@@ -29,7 +29,7 @@ class MaskGenerator:
         nifti_output_path: str
     ) -> List[np.ndarray]:
         """
-        Generate background mask array for CT slices.
+        Generate background/anatomical_region mask array for CT slices.
         
         Parameters
         ----------
@@ -41,18 +41,17 @@ class MaskGenerator:
         Returns
         -------
         List[np.ndarray]
-            List of background masks (1 = background, 0 = head)
+            List of integer masks per slice: 0 = background, 1 = anatomical_region.
         """
-        background_array = []
+        result = []
         nii_image = NIfTIHandler.load_nii_image(nifti_output_path)
-        
         for slice_ind in non_zero_tumor_mask_expanded:
             img = nii_image[:, :, slice_ind]
-            background_mask = ImageProcessor.head_mask_from_array(img)
-            # Convert to int (1 = background, 0 = head)
-            background_array.append(background_mask.astype(int))
-        
-        return background_array
+            background_mask_bool = ImageProcessor.head_mask_from_array(img)
+            # Map: background (True) -> 0, anatomical_region (False) -> 1
+            slice_mask = np.where(background_mask_bool, 0, 1)
+            result.append(slice_mask.astype(np.int32))
+        return result
     
     def get_individual_segmentator_paths(
         self,
@@ -136,24 +135,28 @@ class MaskGenerator:
             main_total_segmentator_path
         )
         
-        # Initialize combined mask array with background
-        combined_mask_array = background_array_int.copy()
-        
+        # Initialize combined mask from background array (0 = background, 1 = anatomical_region)
+        combined_mask_array = [arr.copy() for arr in background_array_int]
+        other_tissue_index = organs_dic.get('other-tissue')
+        if other_tissue_index is None:
+            other_tissue_index = self.organ_dictionary.add_organ('other-tissue')
+            organs_dic['other-tissue'] = other_tissue_index
+
         print(f'Starting organ index at value {self.organ_dictionary.get_max_index() + 1}')
-        
+
         # Process each organ mask (in reverse order)
         for organ_path in reversed(individual_paths):
             print(f'Checking: {organ_path}')
-            
+
             # Get the mask filtered to slices of interest
             organ_mask = self.get_ts_mask(organ_path, non_zero_tumor_mask_expanded)
-            
+
             # Extract organ name from path
             organ_name = os.path.basename(organ_path).replace('.nii.gz', '')
-            
+
             # Only process if organ_mask has data
             if np.sum(organ_mask) > 0:
-                # Get or assign organ index
+                # Get or assign organ index (organs start after background, anatomical_region, other-tissue)
                 if organ_name in organs_dic:
                     organ_index = organs_dic[organ_name]
                     print(f'Organ {organ_name} found in dictionary with index {organ_index}')
@@ -161,7 +164,7 @@ class MaskGenerator:
                     organ_index = self.organ_dictionary.add_organ(organ_name)
                     organs_dic[organ_name] = organ_index
                     print(f'Organ {organ_name} added with index {organ_index}')
-                
+
                 # Add organ mask to combined mask
                 print(f'Running for {organ_name} with organ index {organ_index}')
                 for ind in range(len(combined_mask_array)):
@@ -170,10 +173,14 @@ class MaskGenerator:
             else:
                 print(f'Excluding {organ_name} (no data)')
             print('-------------------')
-        
+
+        # Assign remaining anatomical_region (still 1) to other-tissue
+        for ind in range(len(combined_mask_array)):
+            combined_mask_array[ind][combined_mask_array[ind] == 1] = other_tissue_index
+
         # Update organ dictionary
         self.organ_dictionary.dictionary = organs_dic
-        
+
         return combined_mask_array, self.organ_dictionary
     
     def update_combined_mask_with_tumor(
