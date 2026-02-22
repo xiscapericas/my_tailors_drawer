@@ -16,7 +16,7 @@ class ImageProcessor:
         roi_radius: float = 0.42,
         close_radius: int = 7,
         min_area: int = 2000,
-        keep_top_ratio: float = 0.70,
+        keep_top_ratio: float = 0.6,
         sigma: float = 1.0,
         do_split: bool = True,
         head_top_ratio: float = 0.5
@@ -41,7 +41,7 @@ class ImageProcessor:
         min_area : int
             Minimum area for removing small blobs
         keep_top_ratio : float
-            Keep only top % of image
+            Fraction of image width to keep (horizontal axis); columns beyond this are set to background. Default 0.6.
         sigma : float
             Gaussian smoothing sigma
         do_split : bool
@@ -101,9 +101,9 @@ class ImageProcessor:
         mask = morphology.remove_small_holes(mask, area_threshold=min_area)
         mask = morphology.remove_small_objects(mask, min_size=min_area)
         
-        # Keep only the top part
-        cut = int(keep_top_ratio * h)
-        mask[cut:, :] = False
+        # Keep only the left portion (horizontal axis): columns beyond cut are background
+        cut = int(keep_top_ratio * w)
+        mask[:, cut:] = False
         
         # Keep largest connected component
         labels = measure.label(mask)
