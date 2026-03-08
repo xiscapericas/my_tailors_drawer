@@ -1,0 +1,108 @@
+---
+description: Working style and project conventions for the PhD medical image segmentation repository
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# Project context
+
+This repository supports a PhD study focused on identifying the best method for medical image segmentation.
+
+The repository contains two main types of work:
+
+1. **Research**
+   - Primarily Jupyter notebooks
+   - Used to explore ideas, test hypotheses, compare methods, and validate approaches
+
+2. **Implementation**
+   - Code that runs on a server to process data and generate results
+   - Maintained for reproducibility and publication in GitHub
+
+When working in this repository, always preserve the distinction between exploratory research code and robust implementation code.
+
+The default behavior in this repository is to preserve and extend the current implementation, not to redesign it.
+
+# General working principles
+
+- Prefer small, incremental edits
+- Reuse existing patterns from the codebase before introducing new abstractions
+- Keep functions short and readable
+- Avoid adding dependencies unless they are clearly necessary
+- Preserve the current project structure unless a change is explicitly requested
+
+# Change strategy
+
+- Prefer extending or adapting existing code over rewriting it
+- Before creating a new function, class, or module, first check whether similar logic already exists and can be reused
+- Do not replace existing implementations unless there is a clear technical reason
+- If an existing function already solves most of the problem, update it carefully instead of creating a parallel implementation
+- Preserve existing workflows, interfaces, and file structure unless a change is explicitly requested
+- For feature updates and bug fixes, prefer the smallest possible modification that solves the problem
+- Avoid broad refactors during routine updates
+
+# Existing codebase patterns
+
+- Treat the current implementation as the primary reference for how the repository works
+- Follow existing naming conventions, file organization, function signatures, and control flow patterns
+- Do not introduce alternative patterns when the repository already has an established way to solve the problem
+- Prefer consistency with the current codebase over theoretical elegance
+- When adding new code, make it look and behave like the surrounding code
+
+# Reuse and duplication
+
+- Avoid duplicating logic that already exists elsewhere in the repository
+- Search for existing helper functions, utilities, and processing steps before implementing new ones
+- If similar code already exists, reuse it or refactor minimally to make reuse possible
+- Do not create parallel versions of existing functionality without a clear reason
+
+# Required workflow before coding
+
+Before making changes:
+1. Identify the existing functions, modules, notebook cells, or scripts related to the task
+2. Check whether the requested update can be implemented by modifying existing code
+3. Reuse the current flow whenever possible
+4. Only introduce new code when no suitable extension point exists
+5. Keep changes as local and minimal as possible
+
+# Research vs implementation
+
+- In notebooks, optimize for clarity, experimentation, and traceability of ideas
+- In implementation code, optimize for robustness, readability, reproducibility, and maintainability
+- Do not turn exploratory notebook patterns directly into implementation code without cleaning and structuring them properly
+- Keep experimental logic separated from reusable pipeline or server code
+
+# Notebook behavior
+
+- In notebooks, prefer updating existing cells and flows instead of reorganizing the notebook structure
+- Do not move experimental logic into new abstractions unless explicitly requested
+- Keep exploratory steps easy to trace and compare with previous experiments
+- Preserve the readability of notebooks for research review and reproducibility
+
+# Quality expectations
+
+After making changes, always explain:
+1. what changed
+2. why it changed
+3. possible risks, limitations, or follow-up work
+
+When writing tests:
+- cover the main happy path
+- include at least one relevant edge case
+
+# Security and privacy
+
+- Never expose private or sensitive information in code, notebooks, logs, outputs, documentation, or examples
+- Store secrets, passwords, credentials, and private configuration in secure locations only
+- This includes, but is not limited to, AWS credentials, access keys, tokens, passwords, and private dataset details
+- Do not hardcode secrets or confidential values
+- When showing example configuration, use placeholders instead of real values
+
+# Expected behavior when editing
+
+- Preserve the existing structure and intent of the repository
+- Prefer minimal changes that are easy to review
+- Clearly separate refactoring from logic changes
+- Avoid unrelated modifications
+- When suggesting improvements, align them with the scientific and reproducible nature of the project
+- If a rewrite seems necessary, first explain why the current approach is insufficient
