@@ -22,3 +22,5 @@ Notebooks in this folder are used to:
 
 - `compare_dice_surface_dice.ipynb` - Comparison of DICE vs Surface DICE metrics
 - `background_head_organs_debug.ipynb` - Debug and fix background / anatomical_region / organs / other-tissue mask pipeline
+- `hecktor_explore_colab.ipynb` - Load HECKTOR case from Google Drive (Colab) and visualize CT with mask overlay
+- `hecktor_preprocessing_preview_colab.ipynb` - Run RADCURE-style preprocessing on HECKTOR in Colab (TotalSegmentator, background, combined mask, tumor, save for model)
