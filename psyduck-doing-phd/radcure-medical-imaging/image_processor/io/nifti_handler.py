@@ -64,11 +64,15 @@ class NIfTIHandler:
     def save_as_nii(
         img_array: List[np.ndarray],
         store_path: str,
-        radcure_case_id: str,
-        dtype_needed: bool = False
+        case_id: str,
+        dtype_needed: bool = False,
+        nnunet_case_number: Optional[str] = None
     ) -> str:
         """
         Save a list of 2D arrays as a NIfTI file.
+
+        Filename uses nnunet_case_number if provided, otherwise derives from case_id
+        (e.g. RADCURE-0005 -> 0005, CHUM-001 -> 001).
         
         Parameters
         ----------
@@ -76,10 +80,12 @@ class NIfTIHandler:
             List of 2D arrays (slices)
         store_path : str
             Directory to save the file
-        radcure_case_id : str
-            Case ID for filename
+        case_id : str
+            Case ID for filename / logging
         dtype_needed : bool
             If True, convert to uint8
+        nnunet_case_number : str, optional
+            If set, used for filename case_XXX_0000.nii.gz; else derived from case_id
         
         Returns
         -------
@@ -100,8 +106,10 @@ class NIfTIHandler:
         
         # Create and save
         nii = nib.Nifti1Image(volume_t, affine)
-        case_id = radcure_case_id.split('-')[1]
-        file_name = f'case_{case_id}_0000.nii.gz'
+        case_num = nnunet_case_number if nnunet_case_number is not None else (
+            case_id.split("-")[-1] if "-" in case_id else case_id.replace("-", "_")
+        )
+        file_name = f'case_{case_num}_0000.nii.gz'
         file_path = os.path.join(store_path, file_name)
         nib.save(nii, file_path)
         
@@ -110,7 +118,7 @@ class NIfTIHandler:
     @staticmethod
     def convert_dicom_to_nifti(
         dicom_folder_ct_path: str,
-        radcure_case_id: str,
+        case_id: str,
         output_folder: str
     ) -> str:
         """
@@ -120,8 +128,8 @@ class NIfTIHandler:
         ----------
         dicom_folder_ct_path : str
             Path to DICOM CT folder
-        radcure_case_id : str
-            Case ID
+        case_id : str
+            Case ID for output filename
         output_folder : str
             Output folder for NIfTI file
         
@@ -132,7 +140,7 @@ class NIfTIHandler:
         """
         import SimpleITK as sitk
         
-        output_path = os.path.join(output_folder, f'{radcure_case_id}.nii.gz')
+        output_path = os.path.join(output_folder, f'{case_id}.nii.gz')
         
         # Read the DICOM series
         reader = sitk.ImageSeriesReader()

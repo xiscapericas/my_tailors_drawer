@@ -1,6 +1,6 @@
 # nnUNet Training Pipeline
 
-This module provides a complete pipeline for training nnUNet models on RADCURE datasets.
+This module provides a complete pipeline for training nnUNet models on datasets prepared by the image_processor package (RADCURE or HECKTOR).
 
 ## Structure
 
@@ -32,7 +32,7 @@ nnunet_training/
 
    Required variables for training:
    - `DATASET_FOLDER`: Path to your `DatasetXXX_TotalSegmentator` folder
-   - `ORGAN_DICTIONARY_PATH`: Path to `radcure_dictionary.json` (from radcure_processor)
+   - `ORGAN_DICTIONARY_PATH`: Path to `radcure_dictionary.json` (from image_processor)
 
    Optional variables:
    - `NNUNET_PATH`: Path to nnUNet installation (optional, has default)
@@ -131,7 +131,7 @@ python -m nnunet_training.predict_and_evaluate
 
 ## Notes
 
-- The organ dictionary is automatically loaded from `radcure_dictionary.json`
+- The organ dictionary is loaded from `ORGAN_DICTIONARY_PATH` (e.g. `radcure_dictionary.json` from image_processor; shared by RADCURE and HECKTOR)
 - Dataset ID is auto-detected from folder name (e.g., `Dataset150_TotalSegmentator` → ID `150`)
 - All paths are configurable via environment variables
 - The pipeline handles errors gracefully and provides clear error messages

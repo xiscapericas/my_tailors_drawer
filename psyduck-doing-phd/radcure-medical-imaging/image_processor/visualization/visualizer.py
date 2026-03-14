@@ -9,7 +9,7 @@ from typing import Optional, List, Dict
 import SimpleITK as sitk
 import json
 import os
-from radcure_processor.io.nifti_handler import NIfTIHandler
+from image_processor.io.nifti_handler import NIfTIHandler
 
 
 class MedicalImageVisualizer:

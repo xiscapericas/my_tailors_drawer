@@ -4,10 +4,10 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name='radcure-processor',
+    name='image-processor',
     version='0.1.0',
     author='Xisca Pericàs',
-    description='A Python package for processing RADCURE DICOM cases with TotalSegmentator',
+    description='Dataset-agnostic medical image processor (RADCURE, HECKTOR) with TotalSegmentator',
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages=find_packages(),

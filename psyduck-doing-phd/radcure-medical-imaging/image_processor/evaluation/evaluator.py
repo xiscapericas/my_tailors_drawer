@@ -5,7 +5,7 @@ import pandas as pd
 import json
 import os
 from typing import Optional, Dict, Tuple, Union
-from radcure_processor.io.nifti_handler import NIfTIHandler
+from image_processor.io.nifti_handler import NIfTIHandler
 
 # Import surface_distance for Surface DICE calculation (required dependency)
 try:

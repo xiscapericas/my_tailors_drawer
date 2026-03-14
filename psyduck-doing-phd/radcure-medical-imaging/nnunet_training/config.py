@@ -31,7 +31,7 @@ class TrainingConfig:
         self.dataset_folder = os.getenv('DATASET_FOLDER')  # Path to DatasetXXX_TotalSegmentator folder
         self.main_retrain_path = os.getenv('NNUNET_RETRAIN_PATH', '/path/to/nnunet_retrain')
         
-        # Organ dictionary path (from radcure_processor)
+        # Organ dictionary path (from image_processor)
         self.organ_dictionary_path = os.getenv(
             'ORGAN_DICTIONARY_PATH',
             os.path.join(os.getenv('MAIN_PATH', ''), 'radcure_dictionary.json')
@@ -92,7 +92,7 @@ class TrainingConfig:
     
     def _load_organ_dictionary(self) -> Dict[str, int]:
         """
-        Load organ dictionary from radcure_processor package.
+        Load organ dictionary from image_processor package.
         
         Returns
         -------

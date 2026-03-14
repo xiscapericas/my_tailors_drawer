@@ -24,8 +24,8 @@ except ImportError:
 import numpy as np
 import matplotlib.pyplot as plt
 import SimpleITK as sitk
-from radcure_processor.visualization import MedicalImageVisualizer
-from radcure_processor.io.file_handler import FileHandler
+from image_processor.visualization import MedicalImageVisualizer
+from image_processor.io.file_handler import FileHandler
 
 
 class DicomSliceBrowser:

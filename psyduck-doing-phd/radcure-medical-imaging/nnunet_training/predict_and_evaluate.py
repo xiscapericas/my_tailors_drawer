@@ -31,8 +31,8 @@ from surface_distance import compute_surface_distances, compute_surface_dice_at_
 
 # Import visualization and evaluation modules
 try:
-    from radcure_processor.visualization import MedicalImageVisualizer
-    from radcure_processor.evaluation import SegmentationEvaluator
+    from image_processor.visualization import MedicalImageVisualizer
+    from image_processor.evaluation import SegmentationEvaluator
 except ImportError as e:
     print(f"Warning: Could not import visualization/evaluation modules: {e}")
     MedicalImageVisualizer = None
@@ -318,7 +318,7 @@ def evaluation_visualization(config: TrainingConfig):
     if MedicalImageVisualizer is None or SegmentationEvaluator is None:
         raise ImportError(
             "Visualization and evaluation modules not available. "
-            "Ensure radcure_processor is properly installed."
+            "Ensure image_processor is properly installed."
         )
     
     paths = config.get_dataset_paths()

@@ -11,7 +11,7 @@ Or use a .env file (see .env.example)
 """
 
 import os
-from radcure_processor import CaseProcessor
+from image_processor import CaseProcessor
 
 # Try to load from .env file if python-dotenv is available
 try:
@@ -103,7 +103,7 @@ processor.process_multiple_cases(
 # - The dataset folder (DatasetXXX_TotalSegmentator) with imagesTs, labelsTs
 # - The organ dictionary JSON file
 
-from radcure_processor.visualization import MedicalImageVisualizer
+from image_processor.visualization import MedicalImageVisualizer
 
 # Load dataset folder path (from nnUNet training setup)
 DATASET_FOLDER = os.getenv('DATASET_FOLDER', '/path/to/DatasetXXX_TotalSegmentator/')
@@ -144,7 +144,7 @@ DATASET_FOLDER = os.getenv('DATASET_FOLDER', '/path/to/DatasetXXX_TotalSegmentat
 # This example shows how to calculate Dice scores per slice per organ
 # and overall metrics for model evaluation.
 
-from radcure_processor.evaluation import SegmentationEvaluator
+from image_processor.evaluation import SegmentationEvaluator
 
 # Example: Calculate Dice scores for a test case
 # evaluator = SegmentationEvaluator()

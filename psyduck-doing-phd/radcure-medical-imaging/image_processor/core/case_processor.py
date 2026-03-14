@@ -1,21 +1,23 @@
-"""Main case processor that orchestrates the entire RADCURE processing pipeline."""
+"""Main case processor that orchestrates the processing pipeline (RADCURE or HECKTOR)."""
 
 import os
 import numpy as np
+import nibabel as nib
 from typing import List, Optional, Dict
-from radcure_processor.io.aws_handler import AWSHandler
-from radcure_processor.io.file_handler import FileHandler
-from radcure_processor.io.nifti_handler import NIfTIHandler
-from radcure_processor.core.dicom_handler import DICOMHandler
-from radcure_processor.core.segmentator import TotalSegmentatorWrapper
-from radcure_processor.core.mask_generator import MaskGenerator
-from radcure_processor.utils.organ_dictionary import OrganDictionary
-from radcure_processor.utils.image_processing import ImageProcessor
-from radcure_processor.visualization.visualizer import MedicalImageVisualizer
+from image_processor.conventions import RADCURE, HECKTOR, get_tumor_source_labels, get_hecktor_paths
+from image_processor.io.aws_handler import AWSHandler
+from image_processor.io.file_handler import FileHandler
+from image_processor.io.nifti_handler import NIfTIHandler
+from image_processor.core.dicom_handler import DICOMHandler
+from image_processor.core.segmentator import TotalSegmentatorWrapper
+from image_processor.core.mask_generator import MaskGenerator
+from image_processor.utils.organ_dictionary import OrganDictionary
+from image_processor.utils.image_processing import ImageProcessor
+from image_processor.visualization.visualizer import MedicalImageVisualizer
 
 
 class CaseProcessor:
-    """Main class for processing RADCURE cases."""
+    """Main class for processing cases (RADCURE or HECKTOR convention)."""
     
     def __init__(
         self,
@@ -28,7 +30,9 @@ class CaseProcessor:
         aws_region: str = 'eu-west-1',
         total_segmentator_tasks: Optional[List[str]] = None,
         reverse_slices: bool = False,
-        slice_expansion: int = 5
+        slice_expansion: int = 5,
+        convention: str = RADCURE,
+        cases_root: Optional[str] = None
     ):
         """
         Initialize case processor.
@@ -55,11 +59,17 @@ class CaseProcessor:
             Whether to reverse slice order
         slice_expansion : int
             Number of slices to add above and below tumor region
+        convention : str
+            Dataset convention: 'radcure' or 'hecktor'. Default 'radcure'.
+        cases_root : str, optional
+            For convention 'hecktor', root folder containing case folders (e.g. .../Hecktor/cases).
         """
         self.main_path = main_path
         self.main_path_retrain = os.path.join(main_path, 'TotalSegmentatorRetrain')
         self.reverse_slices = reverse_slices
         self.slice_expansion = slice_expansion
+        self.convention = convention
+        self.cases_root = cases_root
         
         # Initialize components
         self.aws_handler = AWSHandler(
@@ -95,25 +105,112 @@ class CaseProcessor:
         # Create directories
         os.makedirs(self.main_path_retrain, exist_ok=True)
     
-    def process_case(self, radcure_case_id: str) -> Dict[str, str]:
+    def process_case(self, case_id: str) -> Dict[str, str]:
         """
-        Process a single RADCURE case through the entire pipeline.
+        Process a single case through the entire pipeline.
+        
+        Convention determines input source: RADCURE (DICOM from AWS) or HECKTOR (NIfTI on disk).
         
         Parameters
         ----------
-        radcure_case_id : str
-            Case ID (e.g., 'RADCURE-0005')
+        case_id : str
+            Case ID (e.g., 'RADCURE-0005' or 'CHUM-001')
         
         Returns
         -------
         Dict[str, str]
             Dictionary with paths to output files
         """
-        print(f'Starting processing for {radcure_case_id}')
-        
-        local_folder = os.path.join(self.main_path_retrain, radcure_case_id)
-        radcure_case_id_zip = radcure_case_id + '.zip'
-        zip_path = os.path.join(self.main_path_retrain, radcure_case_id_zip)
+        if self.convention == HECKTOR:
+            return self._process_case_hecktor(case_id)
+        return self._process_case_radcure(case_id)
+
+    def _process_case_hecktor(self, case_id: str) -> Dict[str, str]:
+        """Process a HECKTOR case (NIfTI CT + NIfTI mask, no DICOM)."""
+        if not self.cases_root:
+            raise ValueError("cases_root is required when convention is 'hecktor'")
+        print(f'Starting HECKTOR processing for {case_id}')
+        case_folder = os.path.join(self.cases_root, case_id)
+        paths = get_hecktor_paths(case_folder, case_id)
+        path_ct = paths['path_ct']
+        path_mask = paths['path_mask']
+        if not os.path.isfile(path_ct):
+            raise FileNotFoundError(f"CT not found: {path_ct}")
+        if not os.path.isfile(path_mask):
+            raise FileNotFoundError(f"Mask not found: {path_mask}")
+
+        mask_vol = nib.load(path_mask).get_fdata().astype(np.int32)
+        non_zero = ImageProcessor.get_non_zero_slices(mask_vol)
+        z = mask_vol.shape[2]
+        if len(non_zero) == 0:
+            slices_to_use = list(range(z))
+        else:
+            start = max(int(min(non_zero)) - self.slice_expansion, 0)
+            end = min(int(max(non_zero)) + self.slice_expansion, z - 1)
+            slices_to_use = list(range(start, end + 1))
+
+        try:
+            # Run TotalSegmentator
+            print('Step 1: Running TotalSegmentator')
+            total_segmentator_output = self.segmentator.run_tasks(
+                case_id, path_ct, case_folder, self.tasks_to_run
+            )
+            # Generate background
+            print('Step 2: Generating background masks')
+            background_array_int = self.mask_generator.generate_background_array(
+                slices_to_use, path_ct
+            )
+            # Generate combined mask
+            print('Step 3: Generating combined mask')
+            combined_mask_array, _ = self.mask_generator.generate_combined_mask(
+                slices_to_use, background_array_int, total_segmentator_output.rstrip('/')
+            )
+            # Add tumor (merge GTVp + GTVn into one label)
+            print('Step 4: Adding tumor to mask')
+            combined_mask_array_tumor = self.mask_generator.update_combined_mask_with_tumor(
+                path_mask, slices_to_use, combined_mask_array,
+                tumor_source_labels=get_tumor_source_labels(HECKTOR)
+            )
+            # Generate CT images
+            print('Step 5: Generating CT images')
+            ct_img_array = self.mask_generator.generate_ct_images(path_ct, slices_to_use)
+            # Save results
+            print('Step 6: Saving results')
+            results_path = os.path.join(case_folder, 'output')
+            results_path_images = os.path.join(results_path, 'image')
+            results_path_labels = os.path.join(results_path, 'labels')
+            os.makedirs(results_path_images, exist_ok=True)
+            os.makedirs(results_path_labels, exist_ok=True)
+            image_path = self.nifti_handler.save_as_nii(
+                ct_img_array, results_path_images, case_id, dtype_needed=False
+            )
+            label_path = self.nifti_handler.save_as_nii(
+                combined_mask_array_tumor, results_path_labels, case_id, dtype_needed=True
+            )
+            # Visualization
+            print('Step 7: Generating visualization PDF')
+            pdf_path = os.path.join(results_path, f'{case_id}.pdf')
+            self.visualizer.show_two_niis_side_by_side(
+                image_path, label_path, save_pdf_path=pdf_path, show=False
+            )
+            if self.organ_dictionary.dictionary_path:
+                self.organ_dictionary.save()
+            return {
+                'image_path': image_path,
+                'label_path': label_path,
+                'pdf_path': pdf_path,
+                'status': 'success'
+            }
+        except Exception as e:
+            print(f'Error processing {case_id}: {e}')
+            raise
+
+    def _process_case_radcure(self, case_id: str) -> Dict[str, str]:
+        """Process a RADCURE case (DICOM from AWS, RTSTRUCT tumor)."""
+        print(f'Starting RADCURE processing for {case_id}')
+        local_folder = os.path.join(self.main_path_retrain, case_id)
+        case_id_zip = case_id + '.zip'
+        zip_path = os.path.join(self.main_path_retrain, case_id_zip)
         
         try:
             # Step 1: Download zip
@@ -132,7 +229,7 @@ class CaseProcessor:
             # Step 3: Get DICOM paths
             print('Step 3: Getting DICOM paths')
             dicom_folder_path = self.file_handler.get_dicom_path(
-                local_folder, radcure_case_id
+                local_folder, case_id
             )
             ct_mask_paths = self.file_handler.get_ct_and_mask_paths(dicom_folder_path)
             dicom_folder_ct_path = ct_mask_paths['ct_path']
@@ -142,7 +239,7 @@ class CaseProcessor:
             print('Step 4: Converting to NIfTI')
             nifti_output_path = self.nifti_handler.convert_dicom_to_nifti(
                 dicom_folder_ct_path,
-                radcure_case_id,
+                case_id,
                 local_folder
             )
             
@@ -181,7 +278,7 @@ class CaseProcessor:
             
             # Step 5b: Save and align tumor mask with CT
             print('Step 5b: Saving and aligning tumor mask with CT')
-            mask_nifti_path = os.path.join(local_folder, f'{radcure_case_id}_tumor_mask_aligned.nii.gz')
+            mask_nifti_path = os.path.join(local_folder, f'{case_id}_tumor_mask_aligned.nii.gz')
             self.nifti_handler.save_and_align_mask_with_ct(
                 contours,
                 nifti_output_path,
@@ -191,7 +288,7 @@ class CaseProcessor:
             # Step 6: Run TotalSegmentator
             print('Step 6: Running TotalSegmentator')
             total_segmentator_output = self.segmentator.run_tasks(
-                radcure_case_id,
+                case_id,
                 nifti_output_path,
                 local_folder,
                 self.tasks_to_run
@@ -217,7 +314,8 @@ class CaseProcessor:
             combined_mask_array_tumor = self.mask_generator.update_combined_mask_with_tumor(
                 mask_nifti_path,
                 non_zero_tumor_mask_expanded,
-                combined_mask_array
+                combined_mask_array,
+                tumor_source_labels=get_tumor_source_labels(RADCURE)
             )
             
             # Step 10: Generate CT images
@@ -239,19 +337,19 @@ class CaseProcessor:
             image_path = self.nifti_handler.save_as_nii(
                 ct_img_array,
                 results_path_images,
-                radcure_case_id,
+                case_id,
                 dtype_needed=False
             )
             label_path = self.nifti_handler.save_as_nii(
                 combined_mask_array_tumor,
                 results_path_labels,
-                radcure_case_id,
+                case_id,
                 dtype_needed=True
             )
             
             # Step 12: Generate visualization PDF
             print('Step 12: Generating visualization PDF')
-            pdf_path = os.path.join(results_path, f'{radcure_case_id}.pdf')
+            pdf_path = os.path.join(results_path, f'{case_id}.pdf')
             self.visualizer.show_two_niis_side_by_side(
                 image_path,
                 label_path,
@@ -272,7 +370,7 @@ class CaseProcessor:
             }
             
         except Exception as e:
-            print(f'Error processing {radcure_case_id}: {e}')
+            print(f'Error processing {case_id}: {e}')
             # Cleanup on failure
             self.file_handler.cleanup_case_files(local_folder, zip_path)
             raise
@@ -296,46 +394,60 @@ class CaseProcessor:
             Path to file for logging failed cases
         """
         if case_ids is None:
-            # Get all cases from AWS
-            all_cases = self.aws_handler.list_cases()
-            
-            # Filter out already processed cases
-            try:
-                already_processed = os.listdir(self.main_path_retrain)
-                max_id = max([
-                    int(e.split('-')[1].split('.')[0])
-                    for e in already_processed
-                    if e.startswith('RADCURE-') and ('.zip' in e or os.path.isdir(
-                        os.path.join(self.main_path_retrain, e)
-                    ))
-                ])
-                case_ids = [
-                    c for c in all_cases
-                    if c not in already_processed
-                    and int(c.split('-')[1]) > max_id
-                ]
-            except:
-                case_ids = all_cases
-            
-            print(f'Pending cases to process: {len(case_ids)}')
+            if self.convention == HECKTOR:
+                # Discover case IDs from cases_root (subdirs with HECKTOR CT + mask)
+                if not self.cases_root or not os.path.isdir(self.cases_root):
+                    raise ValueError("cases_root must be an existing directory when convention is 'hecktor' and case_ids is None")
+                case_ids = []
+                for name in sorted(os.listdir(self.cases_root)):
+                    if name.startswith('.'):
+                        continue
+                    folder = os.path.join(self.cases_root, name)
+                    if not os.path.isdir(folder):
+                        continue
+                    paths = get_hecktor_paths(folder, name)
+                    if os.path.isfile(paths['path_ct']) and os.path.isfile(paths['path_mask']):
+                        case_ids.append(name)
+                print(f'Found {len(case_ids)} HECKTOR cases under {self.cases_root}')
+            else:
+                # RADCURE: get all cases from AWS
+                all_cases = self.aws_handler.list_cases()
+                # Filter out already processed cases
+                try:
+                    already_processed = os.listdir(self.main_path_retrain)
+                    max_id = max([
+                        int(e.split('-')[1].split('.')[0])
+                        for e in already_processed
+                        if e.startswith('RADCURE-') and ('.zip' in e or os.path.isdir(
+                            os.path.join(self.main_path_retrain, e)
+                        ))
+                    ])
+                    case_ids = [
+                        c for c in all_cases
+                        if c not in already_processed
+                        and int(c.split('-')[1]) > max_id
+                    ]
+                except Exception:
+                    case_ids = all_cases
+                print(f'Pending cases to process: {len(case_ids)}')
         
-        for radcure_case_id in case_ids:
+        for case_id in case_ids:
             try:
-                result = self.process_case(radcure_case_id)
+                result = self.process_case(case_id)
                 if processed_cases_file:
                     with open(processed_cases_file, "a") as logf:
-                        logf.write(radcure_case_id + "\n")
-                print(f"✓ Successfully processed: {radcure_case_id}")
+                        logf.write(case_id + "\n")
+                print(f"✓ Successfully processed: {case_id}")
             except Exception as e:
                 error_message = str(e)
-                print(f"✗ Failed to process {radcure_case_id}: {error_message}")
+                print(f"✗ Failed to process {case_id}: {error_message}")
                 if failed_cases_file:
                     with open(failed_cases_file, "a") as logf:
-                        logf.write(f"{radcure_case_id}: {error_message}\n")
+                        logf.write(f"{case_id}: {error_message}\n")
 
     def download_and_visualize_case(
         self,
-        radcure_case_id: str,
+        case_id: str,
         slice_indices: Optional[List[int]] = None,
         save_path: Optional[str] = None,
         show: bool = True
@@ -345,7 +457,7 @@ class CaseProcessor:
         
         Parameters
         ----------
-        radcure_case_id : str
+        case_id : str
             Case ID (e.g., 'RADCURE-0005')
         slice_indices : List[int], optional
             Specific slice indices to visualize. If None, shows slices at 25%, 50%, 75%
@@ -359,18 +471,23 @@ class CaseProcessor:
         Dict[str, str]
             Dictionary with paths to downloaded files and visualization
         """
-        print(f'Downloading and visualizing {radcure_case_id}')
+        if self.convention == HECKTOR:
+            raise ValueError(
+                "download_and_visualize_case is for RADCURE only (DICOM from AWS). "
+                "For HECKTOR, use NIfTI paths and your own visualization."
+            )
+        print(f'Downloading and visualizing {case_id}')
         
-        local_folder = os.path.join(self.main_path_retrain, radcure_case_id)
-        radcure_case_id_zip = radcure_case_id + '.zip'
-        zip_path = os.path.join(self.main_path_retrain, radcure_case_id_zip)
+        local_folder = os.path.join(self.main_path_retrain, case_id)
+        case_id_zip = case_id + '.zip'
+        zip_path = os.path.join(self.main_path_retrain, case_id_zip)
         
         try:
             # Step 1: Download zip
             print('Step 1: Downloading zip')
             if not os.path.exists(zip_path):
                 self.aws_handler.download_case(
-                    radcure_case_id,
+                    case_id,
                     self.main_path_retrain
                 )
             
@@ -382,7 +499,7 @@ class CaseProcessor:
             # Step 3: Get DICOM paths
             print('Step 3: Getting DICOM paths')
             dicom_folder_path = self.file_handler.get_dicom_path(
-                local_folder, radcure_case_id
+                local_folder, case_id
             )
             ct_mask_paths = self.file_handler.get_ct_and_mask_paths(dicom_folder_path)
             dicom_folder_ct_path = ct_mask_paths['ct_path']
@@ -390,7 +507,7 @@ class CaseProcessor:
             # Step 4: Visualize DICOM
             print('Step 4: Visualizing DICOM')
             if save_path is None:
-                save_path = os.path.join(local_folder, f'{radcure_case_id}_dicom_preview.png')
+                save_path = os.path.join(local_folder, f'{case_id}_dicom_preview.png')
             
             ct_volume = self.visualizer.visualize_dicom_series(
                 dicom_folder_ct_path,
@@ -408,6 +525,6 @@ class CaseProcessor:
             }
             
         except Exception as e:
-            print(f'Error downloading/visualizing {radcure_case_id}: {e}')
+            print(f'Error downloading/visualizing {case_id}: {e}')
             raise
 

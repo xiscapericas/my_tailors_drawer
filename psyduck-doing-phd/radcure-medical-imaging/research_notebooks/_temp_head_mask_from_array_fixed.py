@@ -1,7 +1,7 @@
 """
 Temporary module for testing head_mask_from_array with keep_top_ratio
 applied on the HORIZONTAL axis (columns) instead of the vertical axis (rows).
-The main implementation now lives in radcure_processor.utils.image_processing
+The main implementation now lives in image_processor.utils.image_processing
 (ImageProcessor.head_mask_from_array) with the same fix and default keep_top_ratio=0.6.
 
 Usage in a notebook:

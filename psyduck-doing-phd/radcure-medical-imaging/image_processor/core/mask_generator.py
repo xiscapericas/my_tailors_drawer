@@ -3,10 +3,10 @@
 import os
 import numpy as np
 import nibabel as nib
-from typing import List, Dict, Tuple
-from radcure_processor.utils.organ_dictionary import OrganDictionary
-from radcure_processor.utils.image_processing import ImageProcessor
-from radcure_processor.io.nifti_handler import NIfTIHandler
+from typing import List, Dict, Tuple, Optional
+from image_processor.utils.organ_dictionary import OrganDictionary
+from image_processor.utils.image_processing import ImageProcessor
+from image_processor.io.nifti_handler import NIfTIHandler
 
 
 class MaskGenerator:
@@ -187,19 +187,26 @@ class MaskGenerator:
         self,
         tumor_mask_nifti_path: str,
         slices_to_use: List[int],
-        combined_mask_array: List[np.ndarray]
+        combined_mask_array: List[np.ndarray],
+        tumor_source_labels: Optional[List[int]] = None
     ) -> List[np.ndarray]:
         """
-        Update combined mask with tumor (GTVp) annotations from aligned NIfTI mask.
+        Update combined mask with tumor annotations from NIfTI mask.
+        
+        Source mask can have multiple labels (e.g. 1=GTVp, 2=GTVn); all values
+        in tumor_source_labels are merged into a single tumor index (GTVp).
         
         Parameters
         ----------
         tumor_mask_nifti_path : str
-            Path to aligned tumor mask NIfTI file
+            Path to tumor mask NIfTI file (aligned with CT for RADCURE)
         slices_to_use : List[int]
             List of slice indices
         combined_mask_array : List[np.ndarray]
             Combined mask array to update
+        tumor_source_labels : List[int], optional
+            Mask values to treat as tumor (e.g. [1] for RADCURE, [1, 2] for HECKTOR).
+            If None, defaults to [1].
         
         Returns
         -------
@@ -208,22 +215,22 @@ class MaskGenerator:
         """
         # Ensure tumor index exists
         tumor_value = self.organ_dictionary.add_tumor_index()
-        
-        # Load aligned tumor mask from NIfTI
+        source_labels = tumor_source_labels if tumor_source_labels is not None else [1]
+
+        # Load tumor mask from NIfTI
         tumor_mask_vol = NIfTIHandler.load_nii_mask(tumor_mask_nifti_path)
-        
+
         # Get tumor masks for slices of interest
-        # The mask is already aligned with CT, so we can use it directly
         tumor_masks = tumor_mask_vol[:, :, slices_to_use]
-        
-        print(f'Using index {tumor_value} for tumor')
+
+        print(f'Using index {tumor_value} for tumor (source labels: {source_labels})')
         for ind in range(len(combined_mask_array)):
             combined_mask = combined_mask_array[ind]
-            # Mask is already aligned, use directly
-            tumor_mask = tumor_masks[:, :, ind]
-            combined_mask[tumor_mask == 1] = tumor_value
+            tumor_slice = tumor_masks[:, :, ind]
+            tumor_any = np.isin(tumor_slice, source_labels)
+            combined_mask[tumor_any] = tumor_value
             combined_mask_array[ind] = combined_mask
-        
+
         return combined_mask_array
     
     def generate_ct_images(

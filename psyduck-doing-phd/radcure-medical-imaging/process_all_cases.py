@@ -23,7 +23,7 @@ The script will:
 import os
 import sys
 from datetime import datetime
-from radcure_processor import CaseProcessor
+from image_processor import CaseProcessor
 
 # Try to load from .env file if python-dotenv is available
 try:

@@ -1,10 +1,15 @@
-# RADCURE Medical Imaging Processor
+# Medical Imaging Processor
 
-A Python package for processing RADCURE DICOM cases with TotalSegmentator for tumor detection model training.
+A dataset-agnostic Python package for processing medical imaging cases (RADCURE, HECKTOR) with TotalSegmentator for tumor detection model training.
 
 ## Overview
 
-This package provides a structured, class-based approach to processing medical imaging data from the RADCURE dataset. It handles the entire pipeline from downloading cases from AWS S3, processing DICOM files, running TotalSegmentator segmentation, generating combined masks, saving results in NIfTI format, training nnUNet models, and evaluating predictions with detailed visualizations.
+This package provides a structured, class-based pipeline that supports multiple dataset conventions. It handles downloading (RADCURE) or local NIfTI input (HECKTOR), TotalSegmentator segmentation, combined mask generation with optional **tumor label merging** (e.g. HECKTOR GTVp + GTVn as a single tumor label), and NIfTI outputs for nnUNet training and evaluation.
+
+**Dataset conventions**
+
+- **RADCURE**: DICOM from AWS S3, tumor from RTSTRUCT (GTVp). Single tumor label in output.
+- **HECKTOR**: NIfTI CT and mask on disk (`{case_id}__CT.nii.gz`, `{case_id}.nii.gz`). Mask values 1 (GTVp) and 2 (GTVn) are merged into one tumor label in the combined mask.
 
 ## Features
 
@@ -64,7 +69,7 @@ AWS_FOLDER=RADCURE/all_cases/
 ### 2. Basic Usage
 
 ```python
-from radcure_processor import CaseProcessor
+from image_processor import CaseProcessor
 import os
 
 # Load from environment variables
@@ -76,9 +81,19 @@ processor = CaseProcessor(
     aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
 )
 
-# Process a single case
+# Process a single RADCURE case (default convention)
 result = processor.process_case('RADCURE-0005')
 print(f"Processing complete: {result}")
+
+# Process a HECKTOR case (NIfTI on disk; tumor labels 1 and 2 merged)
+processor_hecktor = CaseProcessor(
+    main_path=os.getenv('MAIN_PATH'),
+    aws_bucket_name=os.getenv('AWS_BUCKET_NAME'),
+    aws_folder=os.getenv('AWS_FOLDER'),
+    convention='hecktor',
+    cases_root='/path/to/Hecktor/cases',
+)
+result = processor_hecktor.process_case('CHUM-001')
 
 # Process multiple cases
 processor.process_multiple_cases(
@@ -122,12 +137,13 @@ See [Dataset Splitting](#dataset-splitting) section for more details.
 ## Package Structure
 
 ```
-radcure_processor/
+image_processor/
+├── conventions.py           # Dataset conventions (RADCURE, HECKTOR)
 ├── core/                    # Core processing modules
-│   ├── case_processor.py    # Main CaseProcessor class
+│   ├── case_processor.py    # Main CaseProcessor (convention-aware)
 │   ├── dicom_handler.py     # DICOM file operations
 │   ├── segmentator.py       # TotalSegmentator wrapper
-│   └── mask_generator.py    # Mask generation and combination
+│   └── mask_generator.py    # Mask generation and tumor merge
 ├── io/                      # I/O operations
 │   ├── aws_handler.py       # AWS S3 operations
 │   ├── file_handler.py      # File operations (zip, paths, etc.)
@@ -161,10 +177,10 @@ processor = CaseProcessor(
 You can also use components independently:
 
 ```python
-from radcure_processor.io import AWSHandler, FileHandler, NIfTIHandler
-from radcure_processor.core import DICOMHandler, TotalSegmentatorWrapper
-from radcure_processor.utils import OrganDictionary, ImageProcessor
-from radcure_processor.visualization import MedicalImageVisualizer
+from image_processor.io import AWSHandler, FileHandler, NIfTIHandler
+from image_processor.core import DICOMHandler, TotalSegmentatorWrapper
+from image_processor.utils import OrganDictionary, ImageProcessor
+from image_processor.visualization import MedicalImageVisualizer
 
 # Download a case
 aws_handler = AWSHandler(bucket_name='bucket', aws_folder='folder/')
@@ -246,7 +262,7 @@ The package includes several visualization utilities:
 ### Visualize DICOM Series Directly
 
 ```python
-from radcure_processor.visualization import MedicalImageVisualizer
+from image_processor.visualization import MedicalImageVisualizer
 
 visualizer = MedicalImageVisualizer()
 
@@ -262,7 +278,7 @@ ct_array = visualizer.visualize_dicom_series(
 ### Download and Visualize a Case
 
 ```python
-from radcure_processor import CaseProcessor
+from image_processor import CaseProcessor
 
 processor = CaseProcessor(...)
 
@@ -525,7 +541,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 If you use this package in your research, please cite:
 
 ```bibtex
-@software{radcure_processor,
+@software{image_processor,
   title = {RADCURE Medical Imaging Processor},
   author = {Xisca Pericàs},
   year = {2025},
