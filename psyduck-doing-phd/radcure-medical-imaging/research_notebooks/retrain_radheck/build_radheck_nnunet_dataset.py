@@ -13,6 +13,10 @@ Steps (unchanged logically):
   4) 80/20 train/val on remaining HECKTOR cases.
   5) Merge with RADCURE-366 into RADHECK_OUTPUT_WORK/DatasetXXX_TotalSegmentator.
 
+Before any S3 download, the script checks that ``numpy``, ``nibabel``, ``boto3``, and
+``image_processor`` import successfully (same venv as ``pip install -r requirements.txt``).
+If the training zip already exists under ``radheck_download_dir``, the download step is skipped.
+
 Run from repository root:
     python research_notebooks/retrain_radheck/build_radheck_nnunet_dataset.py
 
@@ -131,6 +135,41 @@ def _require_aws_credentials_for_s3_download() -> None:
         f"Copy from: {env_example}\n"
         "Alternatively configure ~/.aws/credentials or an IAM role."
     )
+
+
+def _verify_radheck_dependencies() -> None:
+    """
+    Import packages required before unzip/processing (image_processor loads numpy on import).
+
+    Run this before S3 download so missing venv packages fail fast without re-downloading.
+    """
+    required = [
+        ("numpy", "numpy"),
+        ("nibabel", "nibabel"),
+        ("boto3", "boto3"),
+    ]
+    missing: List[str] = []
+    for pip_name, import_name in required:
+        try:
+            __import__(import_name)
+        except ImportError:
+            missing.append(pip_name)
+    if missing:
+        req_file = _REPO_ROOT / "requirements.txt"
+        raise RuntimeError(
+            "Missing Python package(s): "
+            + ", ".join(missing)
+            + f". Install the project environment, e.g.:\n  python -m pip install -r {req_file}\n"
+            "Use the same interpreter you use to run this script."
+        )
+    try:
+        from image_processor import CaseProcessor, HECKTOR  # noqa: F401
+    except ImportError as e:
+        req_file = _REPO_ROOT / "requirements.txt"
+        raise RuntimeError(
+            f"image_processor dependencies failed to import: {e}\n"
+            f"Install full stack: python -m pip install -r {req_file}"
+        ) from e
 
 
 # Short TMPDIR for multiprocessing (same idea as run_hecktor_test1_pipeline)
@@ -482,6 +521,9 @@ def main() -> None:
     if not os.path.isdir(radcure_dataset):
         raise FileNotFoundError(f"RADCURE dataset not found: {radcure_dataset}")
 
+    _verify_radheck_dependencies()
+    print("Dependency check OK (numpy, nibabel, boto3, image_processor).")
+
     from run_hecktor_test1_pipeline import (  # noqa: E402
         download_from_s3,
         parse_s3_uri,
@@ -498,8 +540,11 @@ def main() -> None:
         zip_name = os.path.basename(parse_s3_uri(s3_uri)[1]) or "HECKTOR2025 Task 1 Training.zip"
         zip_path = os.path.join(download_dir, zip_name)
         if not args.skip_download:
-            _require_aws_credentials_for_s3_download()
-            download_from_s3(s3_uri, zip_path)
+            if os.path.isfile(zip_path):
+                print(f"Zip already present, skipping download: {zip_path}")
+            else:
+                _require_aws_credentials_for_s3_download()
+                download_from_s3(s3_uri, zip_path)
         else:
             if not os.path.isfile(zip_path):
                 raise FileNotFoundError(f"--skip-download but zip missing: {zip_path}")
