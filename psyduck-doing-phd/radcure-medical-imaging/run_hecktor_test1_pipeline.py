@@ -103,30 +103,72 @@ def download_from_s3(s3_uri: str, local_path: str, region: str = "eu-west-1") ->
     return local_path
 
 
-def unzip_and_detect_cases_root(zip_path: str, unzipped_dir: str) -> str:
-    """Unzip and return the directory to use as cases_root for HECKTOR (may be unzipped_dir or one subdir)."""
-    from image_processor.io.file_handler import FileHandler
+def detect_hecktor_cases_root(unpacked_parent_dir: str, max_depth: int = 4) -> str:
+    """
+    Find the directory whose immediate children are HECKTOR case folders.
+
+    Handles archives that unpack to e.g. ``unzipped/Task 1/CHUM-001/`` (CT + mask at case level)
+    or ``unzipped/CHUM-001/`` directly. Skips ``__MACOSX``. Uses BFS so a wrapper folder like
+    ``Task 1`` is found even when ``__MACOSX`` is also at the top level.
+    """
+    from collections import deque
+
     from image_processor.conventions import get_hecktor_paths
+
+    def dir_contains_hecktor_case_folders(directory: str) -> bool:
+        try:
+            names = os.listdir(directory)
+        except OSError:
+            return False
+        for name in names:
+            if name.startswith(".") or name == "__MACOSX":
+                continue
+            case_folder = os.path.join(directory, name)
+            if not os.path.isdir(case_folder):
+                continue
+            paths = get_hecktor_paths(case_folder, name)
+            if os.path.isfile(paths["path_ct"]) and os.path.isfile(paths["path_mask"]):
+                return True
+        return False
+
+    start = os.path.abspath(unpacked_parent_dir)
+    if not os.path.isdir(start):
+        raise FileNotFoundError(f"Not a directory: {start}")
+    q = deque([(start, 0)])
+    seen = {os.path.realpath(start)}
+    while q:
+        d, depth = q.popleft()
+        if dir_contains_hecktor_case_folders(d):
+            return d
+        if depth >= max_depth:
+            continue
+        try:
+            names = os.listdir(d)
+        except OSError:
+            continue
+        for name in sorted(names):
+            if name.startswith(".") or name == "__MACOSX":
+                continue
+            sub = os.path.join(d, name)
+            if not os.path.isdir(sub):
+                continue
+            r = os.path.realpath(sub)
+            if r in seen:
+                continue
+            seen.add(r)
+            q.append((sub, depth + 1))
+    raise FileNotFoundError(
+        f"No HECKTOR case folders under {unpacked_parent_dir} "
+        f"(expected each case dir to contain {{id}}__CT.nii.gz and {{id}}.nii.gz; searched up to depth {max_depth})."
+    )
+
+
+def unzip_and_detect_cases_root(zip_path: str, unzipped_dir: str) -> str:
+    """Unzip and return cases_root for HECKTOR (handles ``Task 1/`` and similar wrappers)."""
+    from image_processor.io.file_handler import FileHandler
+
     FileHandler.unzip_file(zip_path, unzipped_dir)
-    entries = [e for e in os.listdir(unzipped_dir) if not e.startswith(".")]
-    if not entries:
-        raise FileNotFoundError(f"No entries in unzipped folder: {unzipped_dir}")
-    # If single subdir, use it as cases_root (e.g. zip contained test1/CHUM-001, CHUM-002, ...)
-    if len(entries) == 1:
-        subdir = os.path.join(unzipped_dir, entries[0])
-        if os.path.isdir(subdir):
-            sub_entries = [e for e in os.listdir(subdir) if not e.startswith(".")]
-            # Check if subdir contains HECKTOR case folders (each has {id}__CT.nii.gz and {id}.nii.gz)
-            for e in sub_entries[:10]:
-                case_folder = os.path.join(subdir, e)
-                if os.path.isdir(case_folder):
-                    paths = get_hecktor_paths(case_folder, e)
-                    if os.path.isfile(paths["path_ct"]) and os.path.isfile(paths["path_mask"]):
-                        return subdir
-            # Single case at top level of subdir
-            if len(sub_entries) == 1:
-                return subdir
-    return unzipped_dir
+    return detect_hecktor_cases_root(unzipped_dir)
 
 
 def build_nnunet_dataset_from_processed(
@@ -302,18 +344,21 @@ def main():
                 cases_root = unzip_and_detect_cases_root(zip_path, unzipped_dir)
                 print(f"Cases root: {cases_root}")
             else:
-                # Use unzipped dir; if it has one subdir that contains output/ in its children, use that as cases_root
-                cases_root = unzipped_dir
-                if not os.path.isdir(cases_root):
-                    raise FileNotFoundError(f"Skip process requested but unzipped dir not found: {cases_root}")
-                entries = [e for e in os.listdir(cases_root) if not e.startswith(".")]
-                if len(entries) == 1:
-                    subdir = os.path.join(cases_root, entries[0])
-                    if os.path.isdir(subdir):
-                        for c in os.listdir(subdir):
-                            if os.path.isdir(os.path.join(subdir, c, "output")):
-                                cases_root = subdir
-                                break
+                if not os.path.isdir(unzipped_dir):
+                    raise FileNotFoundError(f"Skip process requested but unzipped dir not found: {unzipped_dir}")
+                try:
+                    cases_root = detect_hecktor_cases_root(unzipped_dir)
+                except FileNotFoundError:
+                    # Already-processed tree: e.g. one folder whose children have output/
+                    cases_root = unzipped_dir
+                    entries = [e for e in os.listdir(cases_root) if not e.startswith(".")]
+                    if len(entries) == 1:
+                        subdir = os.path.join(cases_root, entries[0])
+                        if os.path.isdir(subdir):
+                            for c in os.listdir(subdir):
+                                if os.path.isdir(os.path.join(subdir, c, "output")):
+                                    cases_root = subdir
+                                    break
                 print(f"Using existing unzipped dir as cases root: {cases_root}")
 
         # ----- Step 3: Run image_processor (HECKTOR) -----

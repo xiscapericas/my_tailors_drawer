@@ -525,6 +525,7 @@ def main() -> None:
     print("Dependency check OK (numpy, nibabel, boto3, image_processor).")
 
     from run_hecktor_test1_pipeline import (  # noqa: E402
+        detect_hecktor_cases_root,
         download_from_s3,
         parse_s3_uri,
         unzip_and_detect_cases_root,
@@ -554,8 +555,15 @@ def main() -> None:
             cases_root = unzip_and_detect_cases_root(zip_path, unzipped_dir)
             print(f"Unzipped; cases root: {cases_root}")
         else:
-            cases_root = unzipped_dir
-            print(f"--skip-process: assuming cases under {cases_root}")
+            try:
+                cases_root = detect_hecktor_cases_root(unzipped_dir)
+            except FileNotFoundError:
+                cases_root = unzipped_dir
+                print(
+                    f"Warning: could not find HECKTOR case folders ({{id}}__CT / {{id}}.nii.gz) under {unzipped_dir}; "
+                    f"using as-is. Set --hecktor-cases-root if needed."
+                )
+            print(f"--skip-process: HECKTOR cases root: {cases_root}")
 
     if not args.skip_process:
         from image_processor import CaseProcessor, HECKTOR  # noqa: E402
