@@ -7,6 +7,8 @@ pydicom>=2.3.0
 totalsegmentator>=1.5.0
 rt-utils>=1.2.0
 nibabel>=3.2.0
+# Optional for nibabel but required when reading NIfTI with blosc/zstd compression (e.g. HECKTOR)
+blosc2>=2.5.0
 matplotlib>=3.5.0
 scikit-image>=0.19.0
 scipy>=1.7.0

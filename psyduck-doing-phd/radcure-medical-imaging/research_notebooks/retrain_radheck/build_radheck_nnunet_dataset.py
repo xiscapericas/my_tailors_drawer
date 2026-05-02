@@ -13,7 +13,7 @@ Steps (unchanged logically):
   4) 80/20 train/val on remaining HECKTOR cases.
   5) Merge with RADCURE-366 into RADHECK_OUTPUT_WORK/DatasetXXX_TotalSegmentator.
 
-Before any S3 download, the script checks that ``numpy``, ``nibabel``, ``boto3``, and
+Before any S3 download, the script checks that ``numpy``, ``nibabel``, ``blosc2``, ``boto3``, and
 ``image_processor`` import successfully (same venv as ``pip install -r requirements.txt``).
 If the training zip already exists under ``radheck_download_dir``, the download step is skipped.
 
@@ -146,6 +146,7 @@ def _verify_radheck_dependencies() -> None:
     required = [
         ("numpy", "numpy"),
         ("nibabel", "nibabel"),
+        ("blosc2", "blosc2"),
         ("boto3", "boto3"),
     ]
     missing: List[str] = []
@@ -522,7 +523,7 @@ def main() -> None:
         raise FileNotFoundError(f"RADCURE dataset not found: {radcure_dataset}")
 
     _verify_radheck_dependencies()
-    print("Dependency check OK (numpy, nibabel, boto3, image_processor).")
+    print("Dependency check OK (numpy, nibabel, blosc2, boto3, image_processor).")
 
     from run_hecktor_test1_pipeline import (  # noqa: E402
         detect_hecktor_cases_root,
