@@ -137,6 +137,30 @@ def _require_aws_credentials_for_s3_download() -> None:
     )
 
 
+def _verify_blosc2_import() -> None:
+    """blosc2 must import cleanly after numpy (ABI mismatch if built against another numpy)."""
+    try:
+        import blosc2  # noqa: F401
+    except ImportError as e:
+        req_file = _REPO_ROOT / "requirements.txt"
+        raise RuntimeError(
+            "Missing blosc2 (needed for some compressed NIfTI). Install:\n"
+            f"  python -m pip install blosc2\n"
+            f"Or: python -m pip install -r {req_file}\n"
+            "Use the same interpreter you use to run this script."
+        ) from e
+    except Exception as e:
+        err = str(e).lower()
+        if "numpy" in err and ("dtype" in err or "incompat" in err or "c header" in err):
+            raise RuntimeError(
+                "blosc2 was compiled against a different NumPy than the one loaded now (binary mismatch).\n"
+                "Rebuild both with the same interpreter, e.g.:\n"
+                "  python -m pip install --upgrade --force-reinstall --no-cache-dir numpy blosc2\n"
+                "Then re-run this script."
+            ) from e
+        raise
+
+
 def _verify_radheck_dependencies() -> None:
     """
     Import packages required before unzip/processing (image_processor loads numpy on import).
@@ -146,7 +170,6 @@ def _verify_radheck_dependencies() -> None:
     required = [
         ("numpy", "numpy"),
         ("nibabel", "nibabel"),
-        ("blosc2", "blosc2"),
         ("boto3", "boto3"),
     ]
     missing: List[str] = []
@@ -163,6 +186,7 @@ def _verify_radheck_dependencies() -> None:
             + f". Install the project environment, e.g.:\n  python -m pip install -r {req_file}\n"
             "Use the same interpreter you use to run this script."
         )
+    _verify_blosc2_import()
     try:
         from image_processor import CaseProcessor, HECKTOR  # noqa: F401
     except ImportError as e:
