@@ -1,0 +1,13 @@
+{
+  "radheck_s3_uri": "s3://your-bucket/HECKTOR/HECKTOR2025 Task 1 Training.zip",
+  "radheck_download_dir": "/path/on/server/dataset/hecktor/HECKTOR2025_task1_training",
+  "radheck_unzipped_dir": "/path/on/server/dataset/hecktor/HECKTOR2025_task1_training/unzipped",
+  "radheck_radcure_dataset": "/path/on/server/work/nnunet_retrain_radcure366/Dataset366_TotalSegmentator",
+  "radheck_output_work": "/path/on/server/work/nnunet_radheck_test_1",
+  "radheck_hecktor_test_dataset": "/path/on/server/work/nnunet_hecktor_test1/Dataset152_TotalSegmentator",
+  "organ_dictionary_path": "/path/on/server/radcure_dictionary.json",
+  "main_path": "",
+  "radheck_dataset_id": null,
+  "radheck_hecktor_train_frac": 0.8,
+  "radheck_split_seed": 42
+}

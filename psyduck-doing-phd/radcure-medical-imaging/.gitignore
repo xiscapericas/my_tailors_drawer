@@ -45,6 +45,9 @@ env/
 .DS_Store
 Thumbs.db
 
+# Server-only paths for radheck (copy from radheck_server_paths.example.json)
+research_notebooks/retrain_radheck/radheck_server_paths.json
+
 # Project specific
 *.log
 processed_cases.txt
