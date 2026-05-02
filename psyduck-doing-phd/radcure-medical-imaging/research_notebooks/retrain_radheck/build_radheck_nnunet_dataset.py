@@ -24,7 +24,8 @@ Optional environment overrides (same names as JSON keys, UPPER_SNAKE for env):
     RADHECK_SERVER_CONFIG, RADHECK_S3_URI, RADHECK_DOWNLOAD_DIR, RADHECK_UNZIPPED_DIR,
     RADHECK_RADCURE_DATASET, RADHECK_OUTPUT_WORK, RADHECK_HECKTOR_TEST_DATASET,
     RADHECK_DATASET_ID, RADHECK_HECKTOR_TRAIN_FRAC, RADHECK_SPLIT_SEED,
-    ORGAN_DICTIONARY_PATH, MAIN_PATH
+    ORGAN_DICTIONARY_PATH, MAIN_PATH,
+    RADHECK_SKIP_BLOSC2_CHECK (set to 1 to skip blosc2 import check; emergency only)
 
 AWS S3 downloads use the same credentials as the rest of the project: variables in the
 repository-root ``.env`` (see ``env.example``): ``AWS_ACCESS_KEY_ID``, ``AWS_SECRET_ACCESS_KEY``,
@@ -137,8 +138,30 @@ def _require_aws_credentials_for_s3_download() -> None:
     )
 
 
+def _numpy_runtime_diag() -> str:
+    """Where NumPy was loaded from (helps spot system vs user-site mix)."""
+    try:
+        import numpy as np
+
+        return (
+            f"  sys.executable: {sys.executable}\n"
+            f"  numpy {np.__version__}: {np.__file__}\n"
+            f"  PYTHONNOUSERSITE env: {os.environ.get('PYTHONNOUSERSITE', '(not set)')}\n"
+        )
+    except Exception as ex:
+        return f"  (could not introspect numpy: {ex})\n"
+
+
 def _verify_blosc2_import() -> None:
     """blosc2 must import cleanly after numpy (ABI mismatch if built against another numpy)."""
+    if os.environ.get("RADHECK_SKIP_BLOSC2_CHECK", "").strip().lower() in ("1", "true", "yes"):
+        print(
+            "WARNING: RADHECK_SKIP_BLOSC2_CHECK is set; skipping blosc2 import check. "
+            "Compressed NIfTI cases may still fail at runtime if blosc2/numpy are incompatible."
+        )
+        return
+    import numpy  # noqa: F401 — ensure NumPy is loaded from this env before blosc2's C extension
+
     try:
         import blosc2  # noqa: F401
     except ImportError as e:
@@ -152,11 +175,20 @@ def _verify_blosc2_import() -> None:
     except Exception as e:
         err = str(e).lower()
         if "numpy" in err and ("dtype" in err or "incompat" in err or "c header" in err):
+            diag = _numpy_runtime_diag()
             raise RuntimeError(
-                "blosc2 was compiled against a different NumPy than the one loaded now (binary mismatch).\n"
-                "Rebuild both with the same interpreter, e.g.:\n"
-                "  python -m pip install --upgrade --force-reinstall --no-cache-dir numpy blosc2\n"
-                "Then re-run this script."
+                "blosc2 does not match the NumPy loaded in this process (binary ABI mismatch).\n"
+                "This often happens when NumPy comes from one place (e.g. apt) and blosc2 from another (e.g. ~/.local).\n"
+                f"{diag}"
+                "Fix (pick one):\n"
+                "  1) Use a clean venv and only pip install there:\n"
+                "       python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt\n"
+                "  2) Avoid mixing user-site with system packages:\n"
+                "       PYTHONNOUSERSITE=1 python research_notebooks/retrain_radheck/build_radheck_nnunet_dataset.py\n"
+                "  3) Reinstall both into the SAME site-packages as this interpreter:\n"
+                "       python -m pip uninstall -y blosc2 numpy\n"
+                "       python -m pip install --no-cache-dir numpy blosc2\n"
+                "Emergency only: RADHECK_SKIP_BLOSC2_CHECK=1 skips this check (compressed cases may still crash).\n"
             ) from e
         raise
 
