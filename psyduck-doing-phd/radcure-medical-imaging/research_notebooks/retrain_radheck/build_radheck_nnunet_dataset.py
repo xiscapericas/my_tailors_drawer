@@ -21,6 +21,11 @@ Optional environment overrides (same names as JSON keys, UPPER_SNAKE for env):
     RADHECK_RADCURE_DATASET, RADHECK_OUTPUT_WORK, RADHECK_HECKTOR_TEST_DATASET,
     RADHECK_DATASET_ID, RADHECK_HECKTOR_TRAIN_FRAC, RADHECK_SPLIT_SEED,
     ORGAN_DICTIONARY_PATH, MAIN_PATH
+
+AWS S3 downloads use the same credentials as the rest of the project: variables in the
+repository-root ``.env`` (see ``env.example``): ``AWS_ACCESS_KEY_ID``, ``AWS_SECRET_ACCESS_KEY``,
+and ``AWS_REGION``. The script loads ``<repo>/.env`` explicitly so it works even when the shell
+cwd is not the repo root. ``~/.aws/credentials`` is still used if no keys are in ``.env``.
 """
 
 from __future__ import annotations
@@ -41,12 +46,44 @@ _DEFAULT_SERVER_CONFIG_PATH = _SCRIPT_DIR / "radheck_server_paths.json"
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-try:
-    from dotenv import load_dotenv
-
+def _load_project_dotenv() -> None:
+    """Load AWS and other vars from repo-root .env (same pattern as process_all_cases / env.example)."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    repo_env = _REPO_ROOT / ".env"
+    if repo_env.is_file():
+        load_dotenv(repo_env)
+    # Optional: pick up extra keys from cwd .env without overriding repo .env
     load_dotenv()
-except ImportError:
-    pass
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+    if region and not os.environ.get("AWS_DEFAULT_REGION"):
+        os.environ["AWS_DEFAULT_REGION"] = region
+
+
+_load_project_dotenv()
+
+
+def _require_aws_credentials_for_s3_download() -> None:
+    """Fail fast with a clear message if boto3 cannot resolve credentials (after .env load)."""
+    try:
+        import boto3
+
+        if boto3.Session().get_credentials() is not None:
+            return
+    except Exception:
+        pass
+    env_example = _REPO_ROOT / "env.example"
+    raise RuntimeError(
+        "S3 download requires AWS credentials. Add to the repository root .env file (see env.example):\n"
+        "  AWS_ACCESS_KEY_ID=...\n"
+        "  AWS_SECRET_ACCESS_KEY=...\n"
+        "  AWS_REGION=eu-west-1\n"
+        f"Expected .env at: {_REPO_ROOT / '.env'} (copy from {env_example})\n"
+        "Alternatively configure ~/.aws/credentials or an IAM role."
+    )
+
 
 # Short TMPDIR for multiprocessing (same idea as run_hecktor_test1_pipeline)
 _tmp = os.environ.get("TMPDIR") or os.environ.get("TEMP") or ""
@@ -413,6 +450,7 @@ def main() -> None:
         zip_name = os.path.basename(parse_s3_uri(s3_uri)[1]) or "HECKTOR2025 Task 1 Training.zip"
         zip_path = os.path.join(download_dir, zip_name)
         if not args.skip_download:
+            _require_aws_credentials_for_s3_download()
             download_from_s3(s3_uri, zip_path)
         else:
             if not os.path.isfile(zip_path):
