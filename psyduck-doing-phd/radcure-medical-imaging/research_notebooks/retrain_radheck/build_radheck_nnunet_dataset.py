@@ -24,8 +24,9 @@ Optional environment overrides (same names as JSON keys, UPPER_SNAKE for env):
 
 AWS S3 downloads use the same credentials as the rest of the project: variables in the
 repository-root ``.env`` (see ``env.example``): ``AWS_ACCESS_KEY_ID``, ``AWS_SECRET_ACCESS_KEY``,
-and ``AWS_REGION``. The script loads ``<repo>/.env`` explicitly so it works even when the shell
-cwd is not the repo root. ``~/.aws/credentials`` is still used if no keys are in ``.env``.
+and ``AWS_REGION``. The script reads ``<repo>/.env`` with a small built-in parser (no
+``python-dotenv`` required) and also uses ``python-dotenv`` when installed. ``~/.aws/credentials``
+is still used if static keys are not in ``.env``.
 """
 
 from __future__ import annotations
@@ -46,17 +47,50 @@ _DEFAULT_SERVER_CONFIG_PATH = _SCRIPT_DIR / "radheck_server_paths.json"
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+def _read_repo_dotenv_into_environ(dotenv_path: Path) -> None:
+    """
+    Parse repo-root .env into os.environ (no python-dotenv required).
+
+    Handles UTF-8 BOM, optional ``export `` prefix, and ``KEY=value`` / quoted values.
+    Lines in the file override existing environment variables for those keys so a real
+    .env wins over empty placeholders exported in the parent shell.
+    """
+    if not dotenv_path.is_file():
+        return
+    try:
+        text = dotenv_path.read_text(encoding="utf-8-sig")
+    except OSError:
+        return
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if not key:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        os.environ[key] = value
+
+
 def _load_project_dotenv() -> None:
-    """Load AWS and other vars from repo-root .env (same pattern as process_all_cases / env.example)."""
+    """Load repo-root .env first (manual parse), then optional python-dotenv for cwd extras."""
+    repo_env = _REPO_ROOT / ".env"
+    _read_repo_dotenv_into_environ(repo_env)
     try:
         from dotenv import load_dotenv
+
+        if repo_env.is_file():
+            load_dotenv(repo_env, override=True)
+        load_dotenv(override=False)
     except ImportError:
-        return
-    repo_env = _REPO_ROOT / ".env"
-    if repo_env.is_file():
-        load_dotenv(repo_env)
-    # Optional: pick up extra keys from cwd .env without overriding repo .env
-    load_dotenv()
+        pass
     region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
     if region and not os.environ.get("AWS_DEFAULT_REGION"):
         os.environ["AWS_DEFAULT_REGION"] = region
@@ -66,7 +100,11 @@ _load_project_dotenv()
 
 
 def _require_aws_credentials_for_s3_download() -> None:
-    """Fail fast with a clear message if boto3 cannot resolve credentials (after .env load)."""
+    """Fail fast if neither static env keys nor boto3 default chain has credentials."""
+    access_key = (os.getenv("AWS_ACCESS_KEY_ID") or "").strip()
+    secret_key = (os.getenv("AWS_SECRET_ACCESS_KEY") or "").strip()
+    if access_key and secret_key:
+        return
     try:
         import boto3
 
@@ -74,13 +112,23 @@ def _require_aws_credentials_for_s3_download() -> None:
             return
     except Exception:
         pass
+    repo_env = _REPO_ROOT / ".env"
     env_example = _REPO_ROOT / "env.example"
+    hint = (
+        f"Repo .env path: {repo_env} (exists={repo_env.is_file()}). "
+        f"After load: AWS_ACCESS_KEY_ID non-empty={bool(access_key)}, "
+        f"AWS_SECRET_ACCESS_KEY non-empty={bool(secret_key)}.\n"
+        "If .env exists but keys are still empty, check for typos, quotes, or placeholders; "
+        "ensure variable names are exactly AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.\n"
+        "If the parent shell exported empty AWS_* variables, they are overridden by values from .env now.\n"
+    )
     raise RuntimeError(
         "S3 download requires AWS credentials. Add to the repository root .env file (see env.example):\n"
         "  AWS_ACCESS_KEY_ID=...\n"
         "  AWS_SECRET_ACCESS_KEY=...\n"
         "  AWS_REGION=eu-west-1\n"
-        f"Expected .env at: {_REPO_ROOT / '.env'} (copy from {env_example})\n"
+        f"{hint}"
+        f"Copy from: {env_example}\n"
         "Alternatively configure ~/.aws/credentials or an IAM role."
     )
 
