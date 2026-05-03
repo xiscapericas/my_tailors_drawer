@@ -26,6 +26,9 @@ Optional environment overrides (same names as JSON keys, UPPER_SNAKE for env):
     RADHECK_DATASET_ID, RADHECK_HECKTOR_TRAIN_FRAC, RADHECK_SPLIT_SEED,
     ORGAN_DICTIONARY_PATH, MAIN_PATH,
     RADHECK_SKIP_BLOSC2_CHECK (set to 1 to skip blosc2 import check; emergency only)
+    HECKTOR_CLEANUP_INTERMEDIATES (default 1: remove TotalSegmentator outputs + PDF after each case)
+    HECKTOR_TS_NR_THR_SAVING (default 1; set ``default`` for TotalSegmentator library default)
+    HECKTOR_TS_NR_THR_RESAMP (optional; ``default`` for library default)
 
 AWS S3 downloads use the same credentials as the rest of the project: variables in the
 repository-root ``.env`` (see ``env.example``): ``AWS_ACCESS_KEY_ID``, ``AWS_SECRET_ACCESS_KEY``,
@@ -584,6 +587,7 @@ def main() -> None:
     from run_hecktor_test1_pipeline import (  # noqa: E402
         detect_hecktor_cases_root,
         download_from_s3,
+        hecktor_case_processor_memory_kwargs,
         parse_s3_uri,
         unzip_and_detect_cases_root,
     )
@@ -633,6 +637,7 @@ def main() -> None:
             cases_root=cases_root,
             organ_dictionary_path=organ_dict or "",
             slice_expansion=5,
+            **hecktor_case_processor_memory_kwargs(),
         )
         processor.process_multiple_cases(case_ids=None)
 

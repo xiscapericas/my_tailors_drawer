@@ -2,13 +2,18 @@
 
 import os
 from totalsegmentator.python_api import totalsegmentator
-from typing import List
+from typing import List, Optional
 
 
 class TotalSegmentatorWrapper:
     """Wrapper for TotalSegmentator API."""
     
-    def __init__(self, fast: bool = False):
+    def __init__(
+        self,
+        fast: bool = False,
+        nr_thr_resamp: Optional[int] = None,
+        nr_thr_saving: Optional[int] = None,
+    ):
         """
         Initialize TotalSegmentator wrapper.
         
@@ -16,8 +21,14 @@ class TotalSegmentatorWrapper:
         ----------
         fast : bool
             Whether to use fast mode
+        nr_thr_resamp : int, optional
+            Passed to totalsegmentator() when set (lower uses less RAM during resampling).
+        nr_thr_saving : int, optional
+            Passed to totalsegmentator() when set (lower uses less RAM when saving).
         """
         self.fast = fast
+        self.nr_thr_resamp = nr_thr_resamp
+        self.nr_thr_saving = nr_thr_saving
     
     def run_task(
         self,
@@ -43,12 +54,17 @@ class TotalSegmentatorWrapper:
             True if successful
         """
         print(f'Running TotalSegmentator task: {task_type}')
-        totalsegmentator(
+        kwargs = dict(
             input=path_to_input,
             output=output_path,
             task=task_type,
-            fast=self.fast
+            fast=self.fast,
         )
+        if self.nr_thr_resamp is not None:
+            kwargs["nr_thr_resamp"] = self.nr_thr_resamp
+        if self.nr_thr_saving is not None:
+            kwargs["nr_thr_saving"] = self.nr_thr_saving
+        totalsegmentator(**kwargs)
         return True
     
     def run_tasks(

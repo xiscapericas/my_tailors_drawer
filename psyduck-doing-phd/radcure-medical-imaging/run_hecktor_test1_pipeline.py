@@ -81,6 +81,35 @@ CONFIG = {
 }
 
 
+def hecktor_case_processor_memory_kwargs():
+    """
+    Keyword arguments for CaseProcessor to limit RAM/disk during HECKTOR runs.
+
+    Environment:
+        HECKTOR_CLEANUP_INTERMEDIATES — default ``1`` (true). Set ``0`` / ``false`` / ``no`` to keep
+            ``total_segmentator_output/`` and the per-case PDF under each case.
+        HECKTOR_TS_NR_THR_SAVING — default ``1`` if unset (lower RAM when saving). Set ``default`` for
+            TotalSegmentator's built-in default (passes ``None``).
+        HECKTOR_TS_NR_THR_RESAMP — optional; unset or ``default`` for library default.
+    """
+    cleanup_raw = os.environ.get("HECKTOR_CLEANUP_INTERMEDIATES", "1").strip().lower()
+    hecktor_cleanup_intermediates = cleanup_raw not in ("0", "false", "no")
+
+    def _ts_threads(var_name: str, default_if_unset):
+        if var_name not in os.environ:
+            return default_if_unset
+        s = os.environ[var_name].strip()
+        if not s or s.lower() in ("default", "none", "auto"):
+            return None
+        return int(s)
+
+    return {
+        "hecktor_cleanup_intermediates": hecktor_cleanup_intermediates,
+        "segmentator_nr_thr_saving": _ts_threads("HECKTOR_TS_NR_THR_SAVING", 1),
+        "segmentator_nr_thr_resamp": _ts_threads("HECKTOR_TS_NR_THR_RESAMP", None),
+    }
+
+
 def parse_s3_uri(uri: str):
     """Parse s3://bucket/key into (bucket, key)."""
     parsed = urlparse(uri)
@@ -373,6 +402,7 @@ def main():
                 cases_root=cases_root,
                 organ_dictionary_path=organ_dict_path,
                 slice_expansion=5,
+                **hecktor_case_processor_memory_kwargs(),
             )
             processor.process_multiple_cases(case_ids=None)
             # Quick check: if no case has output/, processing found no cases or failed

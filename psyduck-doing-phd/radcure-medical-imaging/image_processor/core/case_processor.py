@@ -1,10 +1,18 @@
 """Main case processor that orchestrates the processing pipeline (RADCURE or HECKTOR)."""
 
+import gc
 import os
+import shutil
 import numpy as np
 import nibabel as nib
-from typing import List, Optional, Dict
-from image_processor.conventions import RADCURE, HECKTOR, get_tumor_source_labels, get_hecktor_paths
+from typing import Dict, List, Optional, Tuple
+from image_processor.conventions import (
+    RADCURE,
+    HECKTOR,
+    get_tumor_source_labels,
+    get_hecktor_paths,
+    get_nnunet_case_number,
+)
 from image_processor.io.aws_handler import AWSHandler
 from image_processor.io.file_handler import FileHandler
 from image_processor.io.nifti_handler import NIfTIHandler
@@ -32,7 +40,10 @@ class CaseProcessor:
         reverse_slices: bool = False,
         slice_expansion: int = 5,
         convention: str = RADCURE,
-        cases_root: Optional[str] = None
+        cases_root: Optional[str] = None,
+        hecktor_cleanup_intermediates: bool = False,
+        segmentator_nr_thr_resamp: Optional[int] = None,
+        segmentator_nr_thr_saving: Optional[int] = None,
     ):
         """
         Initialize case processor.
@@ -63,6 +74,11 @@ class CaseProcessor:
             Dataset convention: 'radcure' or 'hecktor'. Default 'radcure'.
         cases_root : str, optional
             For convention 'hecktor', root folder containing case folders (e.g. .../Hecktor/cases).
+        hecktor_cleanup_intermediates : bool
+            If True (HECKTOR only), remove ``total_segmentator_output/`` and the case PDF after each
+            successful case to save disk and peak RAM references.
+        segmentator_nr_thr_resamp, segmentator_nr_thr_saving : int, optional
+            Passed to TotalSegmentator (lower values reduce memory; None keeps library defaults).
         """
         self.main_path = main_path
         self.main_path_retrain = os.path.join(main_path, 'TotalSegmentatorRetrain')
@@ -70,6 +86,7 @@ class CaseProcessor:
         self.slice_expansion = slice_expansion
         self.convention = convention
         self.cases_root = cases_root
+        self.hecktor_cleanup_intermediates = bool(hecktor_cleanup_intermediates)
         
         # Initialize components
         self.aws_handler = AWSHandler(
@@ -84,7 +101,11 @@ class CaseProcessor:
         self.nifti_handler = NIfTIHandler()
         self.dicom_handler = DICOMHandler()
         
-        self.segmentator = TotalSegmentatorWrapper(fast=False)
+        self.segmentator = TotalSegmentatorWrapper(
+            fast=False,
+            nr_thr_resamp=segmentator_nr_thr_resamp,
+            nr_thr_saving=segmentator_nr_thr_saving,
+        )
         self.organ_dictionary = OrganDictionary(organ_dictionary_path)
         self.mask_generator = MaskGenerator(self.organ_dictionary)
         self.visualizer = MedicalImageVisualizer()
@@ -104,7 +125,41 @@ class CaseProcessor:
         
         # Create directories
         os.makedirs(self.main_path_retrain, exist_ok=True)
-    
+
+    @staticmethod
+    def _maybe_empty_cuda_cache() -> None:
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
+    @staticmethod
+    def _hecktor_nnunet_nifti_paths(case_folder: str, case_id: str) -> Tuple[str, str]:
+        """Paths to image/label NIfTIs produced by save_as_nii (case_XXX_0000.nii.gz)."""
+        num = get_nnunet_case_number(case_id, HECKTOR)
+        fname = f"case_{num}_0000.nii.gz"
+        out = os.path.join(case_folder, "output")
+        return (
+            os.path.join(out, "image", fname),
+            os.path.join(out, "labels", fname),
+        )
+
+    def _cleanup_hecktor_intermediate_files(self, case_folder: str, pdf_path: str) -> None:
+        """Remove TotalSegmentator task outputs and per-case PDF (nnUNet only needs output/image, output/labels)."""
+        ts_out = os.path.join(case_folder, "total_segmentator_output")
+        if os.path.isdir(ts_out):
+            shutil.rmtree(ts_out, ignore_errors=True)
+            print(f"  Cleaned up intermediate folder: {ts_out}")
+        if pdf_path and os.path.isfile(pdf_path):
+            try:
+                os.remove(pdf_path)
+                print(f"  Cleaned up visualization PDF: {pdf_path}")
+            except OSError:
+                pass
+
     def process_case(self, case_id: str) -> Dict[str, str]:
         """
         Process a single case through the entire pipeline.
@@ -119,7 +174,9 @@ class CaseProcessor:
         Returns
         -------
         Dict[str, str]
-            Dictionary with paths to output files
+            Dictionary with paths to output files. For HECKTOR, ``status`` may be
+            ``'skipped'`` when ``output/image`` and ``output/labels`` already contain
+            the expected ``case_*_0000.nii.gz`` pair (no TotalSegmentator re-run).
         """
         if self.convention == HECKTOR:
             return self._process_case_hecktor(case_id)
@@ -138,6 +195,21 @@ class CaseProcessor:
             raise FileNotFoundError(f"CT not found: {path_ct}")
         if not os.path.isfile(path_mask):
             raise FileNotFoundError(f"Mask not found: {path_mask}")
+
+        image_path_done, label_path_done = self._hecktor_nnunet_nifti_paths(case_folder, case_id)
+        if os.path.isfile(image_path_done) and os.path.isfile(label_path_done):
+            print(
+                f"Skip HECKTOR processing for {case_id}: "
+                f"found existing outputs\n  {image_path_done}\n  {label_path_done}"
+            )
+            results_path = os.path.join(case_folder, "output")
+            pdf_path = os.path.join(results_path, f"{case_id}.pdf")
+            return {
+                "image_path": image_path_done,
+                "label_path": label_path_done,
+                "pdf_path": pdf_path if os.path.isfile(pdf_path) else "",
+                "status": "skipped",
+            }
 
         mask_vol = nib.load(path_mask).get_fdata().astype(np.int32)
         non_zero = ImageProcessor.get_non_zero_slices(mask_vol)
@@ -195,12 +267,24 @@ class CaseProcessor:
             )
             if self.organ_dictionary.dictionary_path:
                 self.organ_dictionary.save()
-            return {
-                'image_path': image_path,
-                'label_path': label_path,
-                'pdf_path': pdf_path,
-                'status': 'success'
+            out = {
+                "image_path": image_path,
+                "label_path": label_path,
+                "pdf_path": pdf_path,
+                "status": "success",
             }
+            # Drop large arrays and intermediates so the next case starts leaner
+            del mask_vol
+            del background_array_int
+            del combined_mask_array
+            del combined_mask_array_tumor
+            del ct_img_array
+            if self.hecktor_cleanup_intermediates:
+                self._cleanup_hecktor_intermediate_files(case_folder, pdf_path)
+                out["pdf_path"] = ""
+            gc.collect()
+            self._maybe_empty_cuda_cache()
+            return out
         except Exception as e:
             print(f'Error processing {case_id}: {e}')
             raise
@@ -382,8 +466,8 @@ class CaseProcessor:
         failed_cases_file: Optional[str] = None
     ) -> None:
         """
-        Process multiple cases.
-        
+        Process multiple cases **one at a time** (sequential loop; no batching across cases).
+
         Parameters
         ----------
         case_ids : List[str], optional
@@ -434,10 +518,14 @@ class CaseProcessor:
         for case_id in case_ids:
             try:
                 result = self.process_case(case_id)
-                if processed_cases_file:
+                if processed_cases_file and result.get("status") != "skipped":
                     with open(processed_cases_file, "a") as logf:
                         logf.write(case_id + "\n")
-                print(f"✓ Successfully processed: {case_id}")
+                st = result.get("status")
+                if st == "skipped":
+                    print(f"○ Skipped (already processed): {case_id}")
+                else:
+                    print(f"✓ Successfully processed: {case_id}")
             except Exception as e:
                 error_message = str(e)
                 print(f"✗ Failed to process {case_id}: {error_message}")
