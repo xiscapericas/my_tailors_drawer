@@ -13,8 +13,9 @@ Steps (unchanged logically):
   4) 80/20 train/val on remaining HECKTOR cases.
   5) Merge with RADCURE-366 into RADHECK_OUTPUT_WORK/DatasetXXX_TotalSegmentator.
 
-Before any S3 download, the script checks that ``numpy``, ``nibabel``, ``blosc2``, ``boto3``, and
-``image_processor`` import successfully (same venv as ``pip install -r requirements.txt``).
+Before download/processing, the script checks that ``numpy``, ``nibabel``, ``blosc2``, ``boto3``, and
+``image_processor`` import successfully. With ``--skip-process`` (merge-only), only stdlib copy/split
+runs — blosc2 and ``image_processor`` are not required.
 If the training zip already exists under ``radheck_download_dir``, the download step is skipped.
 
 Run from repository root:
@@ -196,12 +197,19 @@ def _verify_blosc2_import() -> None:
         raise
 
 
-def _verify_radheck_dependencies() -> None:
+def _verify_radheck_dependencies(*, merge_only: bool = False) -> None:
     """
     Import packages required before unzip/processing (image_processor loads numpy on import).
 
     Run this before S3 download so missing venv packages fail fast without re-downloading.
+    When ``merge_only`` is True (``--skip-process``), only file copy/split runs — skip blosc2.
     """
+    if merge_only:
+        print(
+            "Dependency check OK (merge-only: skipped blosc2, boto3, image_processor; "
+            "not needed to copy RADCURE + HECKTOR into nnUNet folders)."
+        )
+        return
     required = [
         ("numpy", "numpy"),
         ("nibabel", "nibabel"),
@@ -581,8 +589,9 @@ def main() -> None:
     if not os.path.isdir(radcure_dataset):
         raise FileNotFoundError(f"RADCURE dataset not found: {radcure_dataset}")
 
-    _verify_radheck_dependencies()
-    print("Dependency check OK (numpy, nibabel, blosc2, boto3, image_processor).")
+    _verify_radheck_dependencies(merge_only=args.skip_process)
+    if not args.skip_process:
+        print("Dependency check OK (numpy, nibabel, blosc2, boto3, image_processor).")
 
     from run_hecktor_test1_pipeline import (  # noqa: E402
         detect_hecktor_cases_root,
