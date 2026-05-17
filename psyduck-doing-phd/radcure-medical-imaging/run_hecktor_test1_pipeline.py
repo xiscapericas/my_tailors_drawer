@@ -200,6 +200,114 @@ def unzip_and_detect_cases_root(zip_path: str, unzipped_dir: str) -> str:
     return detect_hecktor_cases_root(unzipped_dir)
 
 
+def _find_nnunet_plans_source(preprocessed_dataset_dir: str, configuration: str):
+    """Return path to nnUNet plans JSON under nnUNet_preprocessed/DatasetXXX, if present."""
+    for candidate in (
+        f"nnUNetPlans_{configuration}.json",
+        "nnUNetPlans.json",
+    ):
+        path = os.path.join(preprocessed_dataset_dir, candidate)
+        if os.path.isfile(path):
+            return path
+    if os.path.isdir(preprocessed_dataset_dir):
+        for name in os.listdir(preprocessed_dataset_dir):
+            if name.startswith("nnUNetPlans") and name.endswith(".json"):
+                return os.path.join(preprocessed_dataset_dir, name)
+    return None
+
+
+def _trainer_output_dirs(results_dataset_dir: str, model_output_dir: str):
+    dirs = []
+    if os.path.isdir(model_output_dir):
+        dirs.append(model_output_dir)
+    if os.path.isdir(results_dataset_dir):
+        for sub in os.listdir(results_dataset_dir):
+            if "__nnUNetPlans__" in sub:
+                tdir = os.path.join(results_dataset_dir, sub)
+                if os.path.isdir(tdir) and tdir not in dirs:
+                    dirs.append(tdir)
+    return dirs
+
+
+def _copy_into_trainer_dirs(src: str, trainer_dirs, dest_name: str) -> bool:
+    """Copy src to dest_name in each trainer dir if dest is missing. Returns True if any copy ran."""
+    copied = False
+    for tdir in trainer_dirs:
+        dst = os.path.join(tdir, dest_name)
+        if os.path.isfile(dst):
+            continue
+        if not os.path.isfile(src):
+            continue
+        os.makedirs(tdir, exist_ok=True)
+        shutil.copy2(src, dst)
+        print(f"Copied {dest_name} to {dst}")
+        copied = True
+    return copied
+
+
+def _ensure_trained_model_artifacts(
+    config,
+    model_output_dir: str,
+    results_dataset_dir: str,
+    prediction_dataset_folder: str,
+    using_external_model: bool,
+) -> None:
+    """
+    nnUNetv2_predict expects plans.json and dataset.json in the trained model folder.
+
+    When predicting on another dataset (e.g. model 650 on Dataset152), copy artifacts from
+    the *training* dataset (650), not from the prediction folder.
+    """
+    model_dataset_name = f"Dataset{config.dataset_id}_TotalSegmentator"
+    trainer_dirs = _trainer_output_dirs(results_dataset_dir, model_output_dir)
+    if not trainer_dirs:
+        os.makedirs(model_output_dir, exist_ok=True)
+        trainer_dirs = [model_output_dir]
+
+    # dataset.json — label schema of the trained model
+    dataset_json_dst = os.path.join(model_output_dir, "dataset.json")
+    if not os.path.isfile(dataset_json_dst):
+        dataset_json_sources = [
+            os.path.join(config.main_retrain_path, "nnUNet_raw", model_dataset_name, "dataset.json"),
+        ]
+        train_folder = os.getenv("RADHECK_TRAIN_DATASET_FOLDER", "").strip()
+        if train_folder:
+            dataset_json_sources.insert(0, os.path.join(train_folder, "dataset.json"))
+        if not using_external_model:
+            dataset_json_sources.insert(0, os.path.join(prediction_dataset_folder, "dataset.json"))
+        for src in dataset_json_sources:
+            if _copy_into_trainer_dirs(src, trainer_dirs, "dataset.json"):
+                break
+
+    # plans.json — from nnUNet_preprocessed after plan step
+    plans_dst = os.path.join(model_output_dir, "plans.json")
+    if not os.path.isfile(plans_dst):
+        preprocessed_dir = os.path.join(
+            config.main_retrain_path, "nnUNet_preprocessed", model_dataset_name
+        )
+        plans_src = _find_nnunet_plans_source(preprocessed_dir, config.configuration)
+        if plans_src:
+            _copy_into_trainer_dirs(plans_src, trainer_dirs, "plans.json")
+
+    if not os.path.isfile(os.path.join(model_output_dir, "plans.json")):
+        preprocessed_dir = os.path.join(
+            config.main_retrain_path, "nnUNet_preprocessed", model_dataset_name
+        )
+        raise FileNotFoundError(
+            f"plans.json not found in {model_output_dir} and no plans file under {preprocessed_dir}. "
+            "Run training plan for dataset "
+            f"{config.dataset_id} first: python train_nnunet.py --step plan "
+            f"(with DATASET_FOLDER pointing at Dataset{config.dataset_id}_TotalSegmentator)."
+        )
+    if not os.path.isfile(os.path.join(model_output_dir, "dataset.json")):
+        raise FileNotFoundError(
+            f"dataset.json not found in {model_output_dir}. "
+            f"Expected a copy under nnUNet_raw/{model_dataset_name}/ after prepare, "
+            "or set RADHECK_TRAIN_DATASET_FOLDER to your Dataset650 folder."
+        )
+    print(f"Model folder OK: {model_output_dir}")
+
+
 def build_nnunet_dataset_from_processed(
     cases_root: str,
     dataset_folder: str,
@@ -474,95 +582,30 @@ def main():
             and str(config.dataset_id) != str(dataset_id_from_folder)
         )
         if using_external_model:
-            print(f"Using trained model from dataset ID {config.dataset_id} to predict on dataset folder (ID {dataset_id_from_folder}).")
-        # Model folder: where the trained weights/plans live (Dataset{config.dataset_id}_...)
+            print(
+                f"Using trained model from dataset ID {config.dataset_id} to predict on "
+                f"dataset folder (ID {dataset_id_from_folder})."
+            )
         model_dataset_name = f"Dataset{config.dataset_id}_TotalSegmentator"
         results_dataset_dir = os.path.join(config.main_retrain_path, "nnUNet_results", model_dataset_name)
         model_output_dir = os.path.join(
             results_dataset_dir,
             f"{config.trainer}__nnUNetPlans__{config.configuration}",
         )
-        if using_external_model:
-            # Don't copy dataset.json/plans from prediction dataset; model folder must already have them
-            if not os.path.isfile(os.path.join(model_output_dir, "plans.json")):
-                raise FileNotFoundError(
-                    f"Model folder must contain plans.json when using a different dataset's model. "
-                    f"Not found in: {model_output_dir}"
-                )
-            if not os.path.isfile(os.path.join(model_output_dir, "dataset.json")):
-                raise FileNotFoundError(
-                    f"Model folder must contain dataset.json when using a different dataset's model. "
-                    f"Not found in: {model_output_dir}"
-                )
-            print(f"Model folder OK: {model_output_dir}")
-        elif os.path.isfile(os.path.join(dataset_folder, "dataset.json")):
-            dataset_json_src = os.path.join(dataset_folder, "dataset.json")
-            copied = False
-            if os.path.isdir(model_output_dir):
-                dataset_json_dst = os.path.join(model_output_dir, "dataset.json")
-                shutil.copy2(dataset_json_src, dataset_json_dst)
-                print(f"Copied dataset.json to trained model folder: {dataset_json_dst}")
-                copied = True
-            # Also copy to any other trainer/plans folders under this dataset (in case name differs)
-            if os.path.isdir(results_dataset_dir):
-                for sub in os.listdir(results_dataset_dir):
-                    if "__nnUNetPlans__" in sub and os.path.isdir(os.path.join(results_dataset_dir, sub)):
-                        dst = os.path.join(results_dataset_dir, sub, "dataset.json")
-                        if not os.path.isfile(dst):
-                            shutil.copy2(dataset_json_src, dst)
-                            print(f"Copied dataset.json to {dst}")
-                            copied = True
-            if not copied:
-                # No trainer folder had dataset.json; create expected folder and copy so prediction can find it
-                os.makedirs(model_output_dir, exist_ok=True)
-                shutil.copy2(dataset_json_src, os.path.join(model_output_dir, "dataset.json"))
-                print(f"Created {model_output_dir} and copied dataset.json (ensure trained weights are in this folder).")
-        else:
+        if not using_external_model and not os.path.isfile(
+            os.path.join(dataset_folder, "dataset.json")
+        ):
             raise FileNotFoundError(
                 f"dataset.json not found at {os.path.join(dataset_folder, 'dataset.json')}. "
                 "Ensure the dataset folder contains dataset.json (e.g. from Step 4 or from a previous run)."
             )
-        if not using_external_model:
-            # nnUNet prediction also needs plans.json in the trained model folder; copy from preprocessed if missing
-            preprocessed_dataset_dir = os.path.join(
-                config.main_retrain_path, "nnUNet_preprocessed", config.dataset_name
-            )
-            plans_src = None
-            for candidate in (
-                f"nnUNetPlans_{config.configuration}.json",
-                "nnUNetPlans.json",
-            ):
-                p = os.path.join(preprocessed_dataset_dir, candidate)
-                if os.path.isfile(p):
-                    plans_src = p
-                    break
-            if not plans_src and os.path.isdir(preprocessed_dataset_dir):
-                for f in os.listdir(preprocessed_dataset_dir):
-                    if f.startswith("nnUNetPlans") and f.endswith(".json"):
-                        plans_src = os.path.join(preprocessed_dataset_dir, f)
-                        break
-            if plans_src:
-                trainer_folders = []
-                if os.path.isdir(model_output_dir):
-                    trainer_folders.append(model_output_dir)
-                if os.path.isdir(results_dataset_dir):
-                    for sub in os.listdir(results_dataset_dir):
-                        if "__nnUNetPlans__" in sub and os.path.isdir(os.path.join(results_dataset_dir, sub)):
-                            tdir = os.path.join(results_dataset_dir, sub)
-                            if tdir not in trainer_folders:
-                                trainer_folders.append(tdir)
-                for tdir in trainer_folders:
-                    plans_dst = os.path.join(tdir, "plans.json")
-                    if not os.path.isfile(plans_dst):
-                        shutil.copy2(plans_src, plans_dst)
-                        print(f"Copied plans to trained model folder: {plans_dst}")
-            else:
-                if not os.path.isfile(os.path.join(model_output_dir, "plans.json")):
-                    raise FileNotFoundError(
-                        f"plans.json not found in {model_output_dir} and no plans file found in "
-                        f"{preprocessed_dataset_dir}. Run nnUNet planning/preprocessing first "
-                        "(e.g. train_nnunet.py --step plan) or ensure the trained model folder contains plans.json."
-                    )
+        _ensure_trained_model_artifacts(
+            config,
+            model_output_dir,
+            results_dataset_dir,
+            dataset_folder,
+            using_external_model,
+        )
         print("\nStep 5a: Running nnUNet prediction...")
         predict_on_test_set(config)
         if not getattr(args, "skip_eval_viz", False):
