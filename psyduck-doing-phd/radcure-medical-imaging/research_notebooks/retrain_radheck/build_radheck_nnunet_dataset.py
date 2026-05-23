@@ -346,15 +346,19 @@ def filter_hecktor_cases_not_in_test_set(
 
     Returns (kept_ids, excluded_ids).
     """
+    from image_processor.conventions import HECKTOR, get_nnunet_case_number
+
     kept: List[str] = []
     excluded: List[str] = []
     test_lower = {x.lower() for x in test_basenames}
     for cid in case_ids:
         base = hecktor_processed_nnunet_base(cases_root, cid)
-        if cid in test_basenames or base in test_basenames:
+        expected = f"case_{get_nnunet_case_number(cid, HECKTOR)}"
+        candidates = {cid, base, expected}
+        if candidates & test_basenames:
             excluded.append(cid)
             continue
-        if cid.lower() in test_lower or base.lower() in test_lower:
+        if any(x.lower() in test_lower for x in candidates):
             excluded.append(cid)
             continue
         kept.append(cid)

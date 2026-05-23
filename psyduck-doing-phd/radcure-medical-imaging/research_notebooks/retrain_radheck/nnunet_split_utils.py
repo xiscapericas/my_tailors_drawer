@@ -136,6 +136,42 @@ def deduplicate_dataset_splits(
     return report
 
 
+def remove_stems_from_splits(
+    dataset_folder: str,
+    stems: Set[str],
+    *,
+    split_suffixes: Sequence[str] = ("Tr", "Va"),
+    dry_run: bool = False,
+) -> List[str]:
+    """Remove case stems from given splits (images + labels). Returns stems actually removed."""
+    removed: List[str] = []
+    for stem in sorted(stems):
+        found = False
+        for split in split_suffixes:
+            img_path = os.path.join(
+                dataset_folder, f"images{split}", image_filename_for_stem(stem)
+            )
+            lbl_path = os.path.join(
+                dataset_folder, f"labels{split}", label_filename_for_stem(stem)
+            )
+            for path in (img_path, lbl_path):
+                if os.path.isfile(path):
+                    found = True
+                    if not dry_run:
+                        os.remove(path)
+        if found:
+            removed.append(stem)
+    return removed
+
+
+def all_radcure_stems(radcure_dataset: str) -> Set[str]:
+    """Union of Tr/Va/Ts stems in a RADCURE nnUNet dataset folder."""
+    out: Set[str] = set()
+    for split in ("Tr", "Va", "Ts"):
+        out |= list_stems_in_split(radcure_dataset, split)
+    return out
+
+
 def print_audit(audit: Dict[str, object]) -> None:
     print(f"Dataset: {audit['dataset_folder']}")
     counts = audit["counts"]
