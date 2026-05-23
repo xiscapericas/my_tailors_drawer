@@ -18,6 +18,7 @@ Usage:
 """
 
 import argparse
+import os
 import sys
 
 # Try to load from .env file if python-dotenv is available
