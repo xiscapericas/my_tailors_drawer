@@ -50,8 +50,15 @@ def main():
         default=None,
         help='Number of processes for planning/preprocessing (overrides NNUNET_NUM_PROCESSES env var)'
     )
-    
+    parser.add_argument(
+        '--link-raw',
+        action='store_true',
+        help='Symlink DATASET_FOLDER into nnUNet_raw instead of copying (also NNUNET_LINK_RAW=1)',
+    )
+
     args = parser.parse_args()
+    if args.link_raw:
+        os.environ['NNUNET_LINK_RAW'] = '1'
     
     # Load configuration (will validate environment variables)
     try:

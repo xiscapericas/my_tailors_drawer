@@ -128,50 +128,73 @@ def create_dataset_mapping(config: TrainingConfig):
     print(f"  Verified: Mapping contains {len(verify_mapping)} dataset(s)")
 
 
-def copy_dataset_to_nnunet_raw(config: TrainingConfig, overwrite: bool = False):
+def copy_dataset_to_nnunet_raw(
+    config: TrainingConfig,
+    overwrite: bool = False,
+    use_symlink: bool = False,
+):
     """
-    Copy dataset to nnUNet_raw folder.
-    
+    Register dataset in nnUNet_raw (copy or symlink).
+
     Parameters
     ----------
     config : TrainingConfig
         Configuration object
     overwrite : bool
         If True, overwrite existing dataset without asking
+    use_symlink : bool
+        If True, symlink DATASET_FOLDER into nnUNet_raw (set env NNUNET_LINK_RAW=1).
     """
+    use_symlink = use_symlink or os.getenv("NNUNET_LINK_RAW", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     nnunet_raw_path = os.environ["nnUNet_raw"]
     target_path = os.path.join(nnunet_raw_path, config.dataset_name)
-    
-    if os.path.exists(target_path):
-        if not overwrite:
-            print(f"⚠️  Dataset already exists in nnUNet_raw: {target_path}")
-            response = input("Do you want to overwrite? (yes/no): ")
-            if response.lower() != 'yes':
-                print("Skipping dataset copy.")
-                return
-        print(f"Removing existing dataset at {target_path}...")
-        shutil.rmtree(target_path)
-    
-    print(f"Copying dataset to nnUNet_raw...")
-    print(f"  From: {config.dataset_folder}")
-    print(f"  To: {target_path}")
-    
+    src = os.path.abspath(config.dataset_folder)
+
     if not os.path.exists(config.dataset_folder):
         raise FileNotFoundError(
             f"Source dataset folder not found: {config.dataset_folder}\n"
             f"Please check your DATASET_FOLDER environment variable."
         )
-    
-    shutil.copytree(config.dataset_folder, target_path)
-    
-    # Verify the copy was successful
-    if not os.path.exists(os.path.join(target_path, 'dataset.json')):
+
+    if os.path.lexists(target_path):
+        if os.path.islink(target_path) and os.path.realpath(target_path) == src:
+            print(f"✓ Dataset already linked in nnUNet_raw: {target_path} -> {src}")
+            return
+        if not overwrite:
+            print(f"⚠️  Dataset already exists in nnUNet_raw: {target_path}")
+            response = input("Do you want to overwrite? (yes/no): ")
+            if response.lower() != "yes":
+                print("Skipping dataset registration in nnUNet_raw.")
+                return
+        print(f"Removing existing entry at {target_path}...")
+        if os.path.islink(target_path):
+            os.unlink(target_path)
+        else:
+            shutil.rmtree(target_path)
+
+    if use_symlink:
+        print("Linking dataset into nnUNet_raw (no copy)...")
+        print(f"  From: {src}")
+        print(f"  To:   {target_path}")
+        os.symlink(src, target_path)
+    else:
+        print("Copying dataset to nnUNet_raw...")
+        print(f"  From: {config.dataset_folder}")
+        print(f"  To: {target_path}")
+        shutil.copytree(config.dataset_folder, target_path)
+
+    if not os.path.exists(os.path.join(target_path, "dataset.json")):
         raise RuntimeError(
-            f"Dataset copy incomplete: dataset.json not found in {target_path}\n"
+            f"dataset.json not found in {target_path}\n"
             f"Please check that the source dataset folder contains dataset.json"
         )
-    
-    print(f"✓ Dataset copied to {target_path}")
+
+    action = "linked" if use_symlink else "copied"
+    print(f"✓ Dataset {action} to {target_path}")
     print(f"✓ Dataset ID {config.dataset_id} -> {config.dataset_name}")
 
 

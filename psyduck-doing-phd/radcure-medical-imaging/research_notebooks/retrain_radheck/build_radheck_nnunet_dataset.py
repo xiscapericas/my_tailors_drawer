@@ -537,6 +537,11 @@ def main() -> None:
         default="",
         help="Override path to nnUNet HECKTOR test folder (imagesTs/labelsTs).",
     )
+    parser.add_argument(
+        "--skip-dedupe-splits",
+        action="store_true",
+        help="Do not enforce disjoint Tr/Va/Ts after merge (default: dedupe with priority Ts > Tr > Va).",
+    )
     args = parser.parse_args()
 
     config_path = _resolve_config_path(args.config)
@@ -728,6 +733,38 @@ def main() -> None:
         copy_processed_hecktor_case(cases_root, cid, va_img, va_lbl)
     print(f"HECKTOR (after exclusion) — train: {len(h_train)}, val: {len(h_val)} (frac={train_frac}, seed={seed})")
 
+    dedupe_report = None
+    split_audit_after = None
+    if not args.skip_dedupe_splits:
+        if str(_SCRIPT_DIR) not in sys.path:
+            sys.path.insert(0, str(_SCRIPT_DIR))
+        from nnunet_split_utils import (  # noqa: E402
+            audit_split_overlaps,
+            deduplicate_dataset_splits,
+            print_audit,
+            print_dedupe_report,
+            write_dedupe_report_json,
+        )
+
+        print("\nEnforcing disjoint Tr / Va / Ts (priority: Ts > Tr > Va)...")
+        pre_audit = audit_split_overlaps(dataset_folder)
+        if any(pre_audit["overlaps"][k] for k in pre_audit["overlaps"]):
+            print("Overlaps before dedupe:")
+            print_audit(pre_audit)
+        dedupe_report = deduplicate_dataset_splits(dataset_folder)
+        print_dedupe_report(dedupe_report)
+        dedupe_path = os.path.join(dataset_folder, "dedupe_splits_report.json")
+        write_dedupe_report_json(dedupe_report, dedupe_path)
+        print(f"Wrote {dedupe_path}")
+        split_audit_after = audit_split_overlaps(dataset_folder)
+        if any(split_audit_after["overlaps"][k] for k in split_audit_after["overlaps"]):
+            raise RuntimeError(
+                "Split deduplication failed: Tr/Va/Ts still overlap. "
+                "See dedupe_splits_report.json in the dataset folder."
+            )
+        print("Split audit after dedupe:")
+        print_audit(split_audit_after)
+
     n_tr_files = len([f for f in os.listdir(tr_img) if f.endswith(".nii.gz")])
     write_dataset_json(
         dataset_folder,
@@ -752,6 +789,13 @@ def main() -> None:
         "hecktor_split_seed": seed,
         "dataset_folder": dataset_folder,
         "dataset_id": dataset_num,
+        "split_dedupe_priority": "Ts > Tr > Va",
+        "split_counts_after_dedupe": (
+            split_audit_after["counts"] if split_audit_after else None
+        ),
+        "dedupe_removed_counts": (
+            {k: len(v) for k, v in dedupe_report.removed.items()} if dedupe_report else None
+        ),
         "note": "RADCURE test in imagesTs/labelsTs; HECKTOR held-out test is Dataset152 (not copied here).",
     }
     man_path = os.path.join(dataset_folder, "split_manifest.json")
