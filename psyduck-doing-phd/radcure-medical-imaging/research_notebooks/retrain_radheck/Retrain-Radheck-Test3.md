@@ -17,7 +17,9 @@ From the repo root (requires `DATASET_FOLDER` in `.env` or env, same as training
 python -m nnunet_training.install_trainer_variants
 ```
 
-This copies `nnUNetTrainer_700epochs_NoMirroring.py` into your nnUNet install. `train_nnunet.py --step train` runs this automatically when that trainer is selected.
+This copies `nnUNetTrainer_700epochs_NoMirroring.py` into the **active nnunetv2 package** (pip/venv site-packages). `NNUNET_PATH` is only used as an extra target when it points to a separate source tree.
+
+`train_nnunet.py --step train` runs this automatically when that trainer is selected.
 
 ## Server setup (no reprocessing)
 
