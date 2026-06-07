@@ -16,6 +16,12 @@ _VARIANTS_DIR = Path(__file__).resolve().parent / "trainer_variants"
 _RELATIVE_TRAINER_VARIANTS = Path("training/nnUNetTrainer/variants/training_length")
 
 
+def _set_placeholder_nnunet_paths() -> None:
+    """Avoid nnUNet path warnings when this module only installs trainer files."""
+    for key in ("nnUNet_raw", "nnUNet_preprocessed", "nnUNet_results"):
+        os.environ.setdefault(key, "/tmp/nnunet_trainer_install_only")
+
+
 def get_nnunet_package_root() -> Path:
     import nnunetv2
 
@@ -43,7 +49,7 @@ def get_trainer_variants_install_dirs(nnunet_path: str | None = None) -> list[Pa
 
     candidate = nnunet_path or os.getenv("NNUNET_PATH")
     if candidate and candidate != "/path/to/nnUNet":
-        add(Path(candidate) / "nnunetv2" / _RELATIVE_TRAINER_VARIANTS)
+        add(Path(candidate).resolve() / "nnunetv2" / _RELATIVE_TRAINER_VARIANTS)
 
     return dirs
 
@@ -142,6 +148,7 @@ def main():
     )
     args = parser.parse_args()
 
+    _set_placeholder_nnunet_paths()
     install_trainer_variants(args.nnunet_path)
     if args.verify:
         ensure_trainer_installed(args.verify, args.nnunet_path)
