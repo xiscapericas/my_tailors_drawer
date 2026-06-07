@@ -43,6 +43,13 @@ export NNUNET_CONFIGURATION=3d_fullres
 export NNUNET_FOLD=0
 export LOG_DIR=${NNUNET_RETRAIN_PATH}/logs
 
+# Reduce GPU memory use (recommended if you hit OOM on epoch 0)
+export nnUNet_compile=false
+# Use physical GPU 1 only (GPU 0 may be busy with other jobs)
+export CUDA_VISIBLE_DEVICES=1
+# Optional: fewer data-augmentation workers (helps CPU RAM, sometimes GPU pressure)
+# export nnUNet_n_proc_DA=4
+
 mkdir -p "$NNUNET_RETRAIN_PATH" "$LOG_DIR"
 ```
 
@@ -73,6 +80,8 @@ ${NNUNET_RETRAIN_PATH}/nnUNet_results/Dataset650_TotalSegmentator/
 export DATASET_FOLDER=/media/HDD_8TB/xisca/work/nnunet_radheck_test_1/Dataset650_TotalSegmentator
 export NNUNET_RETRAIN_PATH=/media/HDD_8TB/xisca/work/nnunet_radheck_test_3_retrain
 export NNUNET_TRAINER=nnUNetTrainer_700epochs_NoMirroring
+export CUDA_VISIBLE_DEVICES=1
+export nnUNet_compile=false
 
 python train_nnunet.py --step evaluate
 python train_nnunet.py --step evaluation_visualization
@@ -85,6 +94,8 @@ export DATASET_ID=152
 export DATASET_FOLDER=/media/HDD_8TB/xisca/work/nnunet_hecktor_test1/Dataset152_TotalSegmentator
 export NNUNET_RETRAIN_PATH=/media/HDD_8TB/xisca/work/nnunet_radheck_test_3_retrain
 export NNUNET_TRAINER=nnUNetTrainer_700epochs_NoMirroring
+export CUDA_VISIBLE_DEVICES=1
+export nnUNet_compile=false
 
 python run_hecktor_test1_pipeline.py --predict-only
 ```
@@ -99,6 +110,48 @@ ln -s /media/HDD_8TB/xisca/work/nnunet_radheck_test_1_retrain/nnUNet_preprocesse
 ```
 
 Then omit `NNUNET_PREPROCESSED_PATH`.
+
+## CUDA out of memory (OOM)
+
+Your log shows `Using torch.compile...` and only **~170 MiB free** on a **24 GB** GPU. Test1 used the same `batch_size: 2` plans, so this is usually one of:
+
+1. **Another process on the GPU** — check and stop it first:
+
+   ```bash
+   nvidia-smi
+   # kill stale training/predict jobs, then retry
+   ```
+
+2. **`torch.compile` extra memory on epoch 0** — disable it (no replanning needed):
+
+   ```bash
+   export nnUNet_compile=false
+   export CUDA_VISIBLE_DEVICES=1
+   python train_nnunet.py --step train
+   ```
+
+3. **Still OOM with batch 2** — add a batch-1 configuration to the existing plans file (still **no** re-preprocessing). Edit:
+
+   `.../nnUNet_preprocessed/Dataset650_TotalSegmentator/nnUNetPlans.json`
+
+   Inside `"configurations"`, add:
+
+   ```json
+   "3d_fullres_bs1": {
+     "inherits_from": "3d_fullres",
+     "batch_size": 1
+   }
+   ```
+
+   Then train with:
+
+   ```bash
+   export NNUNET_CONFIGURATION=3d_fullres_bs1
+   export nnUNet_compile=false
+   python train_nnunet.py --step train
+   ```
+
+   Results will be under `...__nnUNetPlans__3d_fullres_bs1/` instead of `...__3d_fullres/`.
 
 ## Results (fill in after run)
 

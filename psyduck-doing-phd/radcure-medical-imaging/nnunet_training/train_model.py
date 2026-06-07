@@ -92,6 +92,12 @@ def train_model(config: TrainingConfig, log_file: str = None):
     print(f"  Trainer: {config.trainer}")
     print(f"  Fold: {config.fold}")
     print(f"  Log file: {log_file}")
+    compile_setting = os.environ.get("nnUNet_compile", "(not set — nnUNet default, usually compile ON)")
+    print(f"  nnUNet_compile: {compile_setting}")
+    cuda_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "(not set — all GPUs visible)")
+    print(f"  CUDA_VISIBLE_DEVICES: {cuda_devices}")
+    if os.environ.get("nnUNet_preprocessed"):
+        print(f"  nnUNet_preprocessed: {os.environ['nnUNet_preprocessed']}")
     
     cmd = [
         'nnUNetv2_train',
