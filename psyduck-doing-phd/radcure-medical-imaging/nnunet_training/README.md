@@ -10,6 +10,8 @@ nnunet_training/
 ├── prepare_dataset.py     # Dataset preparation
 ├── train_model.py         # Model training
 ├── predict_and_evaluate.py # Prediction and evaluation
+├── install_trainer_variants.py  # Copy custom trainers into nnUNet
+├── trainer_variants/      # Custom nnUNet trainer classes (e.g. 700 epochs)
 └── README.md             # This file
 ```
 
@@ -38,7 +40,8 @@ nnunet_training/
    - `NNUNET_PATH`: Path to nnUNet installation (optional, has default)
    - `NNUNET_RETRAIN_PATH`: Base path for nnUNet folders (optional, has default)
    - `NNUNET_CONFIGURATION`: Model configuration (default: `3d_fullres`)
-   - `NNUNET_TRAINER`: Trainer class (default: `nnUNetTrainerNoMirroring`)
+   - `NNUNET_TRAINER`: Trainer class (default: `nnUNetTrainerNoMirroring`; Test3: `nnUNetTrainer_700epochs_NoMirroring`)
+   - `NNUNET_PREPROCESSED_PATH`: Reuse preprocessed data from another retrain folder (optional)
    - `NNUNET_FOLD`: Fold to train (default: `0`)
    - And more... (see `env.example` in project root for complete list)
 

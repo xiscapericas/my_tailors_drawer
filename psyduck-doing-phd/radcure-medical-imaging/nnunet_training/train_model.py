@@ -18,6 +18,7 @@ except ImportError:
     pass
 
 from nnunet_training.config import TrainingConfig
+from nnunet_training.install_trainer_variants import install_trainer_variants
 
 
 def add_nnunet_to_path(nnunet_path: str):
@@ -235,6 +236,10 @@ def main_train():
     
     # Add nnUNet to path
     add_nnunet_to_path(config.nnunet_path)
+
+    if config.trainer.startswith("nnUNetTrainer_") and config.trainer.endswith("_NoMirroring"):
+        print("\nEnsuring custom trainer variants are installed in nnUNet...")
+        install_trainer_variants(config.nnunet_path)
     
     # Setup environment
     config.setup_nnunet_environment()

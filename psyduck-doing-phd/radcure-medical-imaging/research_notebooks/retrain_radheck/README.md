@@ -86,3 +86,4 @@ python research_notebooks/retrain_radheck/build_radheck_nnunet_dataset.py \
 
 - Copy or register the combined dataset under `nnUNet_raw` and run `train_nnunet.py` plan/train as for RADCURE-366.
 - Joint evaluation can use RADCURE test from the combined `imagesTs` and HECKTOR test from your separate `Dataset152` folder if you keep two test pools.
+- **Test3 (700 epochs):** see [`Retrain-Radheck-Test3.md`](Retrain-Radheck-Test3.md) — retrain only, reuse preprocessing from Test1/Test2, new results under `nnunet_radheck_test_3_retrain`.

@@ -43,6 +43,8 @@ class TrainingConfig:
         # Training configuration
         self.configuration = os.getenv('NNUNET_CONFIGURATION', '3d_fullres')
         self.trainer = os.getenv('NNUNET_TRAINER', 'nnUNetTrainerNoMirroring')
+        # Optional: reuse preprocessed data from another retrain run (skip re-planning)
+        self.preprocessed_path = os.getenv('NNUNET_PREPROCESSED_PATH')
         self.fold = int(os.getenv('NNUNET_FOLD', '0'))
         self.num_processes = int(os.getenv('NNUNET_NUM_PROCESSES', '1'))
         
@@ -116,12 +118,20 @@ class TrainingConfig:
     def setup_nnunet_environment(self):
         """Set up nnUNet environment variables."""
         os.environ["nnUNet_raw"] = self.main_retrain_path
-        os.environ["nnUNet_preprocessed"] = f"{self.main_retrain_path}/nnUNet_preprocessed"
+        if self.preprocessed_path:
+            os.environ["nnUNet_preprocessed"] = os.path.abspath(self.preprocessed_path)
+        else:
+            os.environ["nnUNet_preprocessed"] = f"{self.main_retrain_path}/nnUNet_preprocessed"
         os.environ["nnUNet_results"] = f"{self.main_retrain_path}/nnUNet_results"
         
         # Create directories
         os.makedirs(os.environ["nnUNet_raw"], exist_ok=True)
-        os.makedirs(os.environ["nnUNet_preprocessed"], exist_ok=True)
+        if not self.preprocessed_path:
+            os.makedirs(os.environ["nnUNet_preprocessed"], exist_ok=True)
+        elif not os.path.isdir(os.environ["nnUNet_preprocessed"]):
+            raise FileNotFoundError(
+                f"NNUNET_PREPROCESSED_PATH does not exist: {os.environ['nnUNet_preprocessed']}"
+            )
         os.makedirs(os.environ["nnUNet_results"], exist_ok=True)
         os.makedirs(self.log_dir, exist_ok=True)
         
