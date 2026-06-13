@@ -58,6 +58,10 @@ class TrainingConfig:
         
         # Logging
         self.log_dir = os.getenv('LOG_DIR', './logs')
+        # Optional: write predictions / eval viz outside DATASET_FOLDER (e.g. hecktor_validation)
+        self.eval_output_dir = os.getenv('NNUNET_EVAL_OUTPUT_DIR')
+        if self.eval_output_dir:
+            self.eval_output_dir = os.path.abspath(self.eval_output_dir)
         
         # Validate required paths
         if not self.dataset_folder:

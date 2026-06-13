@@ -45,6 +45,20 @@ def add_nnunet_to_path(nnunet_path: str):
         sys.path.append(nnunet_path)
 
 
+def get_predictions_output_dir(config: TrainingConfig) -> str:
+    """Directory for nnUNet prediction masks (labelsTs_predicted)."""
+    if config.eval_output_dir:
+        return os.path.join(config.eval_output_dir, "labelsTs_predicted")
+    return os.path.join(config.dataset_folder, "labelsTs_predicted")
+
+
+def get_eval_viz_output_dir(config: TrainingConfig) -> str:
+    """Directory for Dice scores and comparison PDFs (labelsTs_dice_and_viz)."""
+    if config.eval_output_dir:
+        return os.path.join(config.eval_output_dir, "labelsTs_dice_and_viz")
+    return os.path.join(config.dataset_folder, "labelsTs_dice_and_viz")
+
+
 def predict_on_test_set(config: TrainingConfig, log_file: str = None):
     """
     Run predictions on test set.
@@ -61,7 +75,7 @@ def predict_on_test_set(config: TrainingConfig, log_file: str = None):
     
     paths = config.get_dataset_paths()
     input_dir = paths['imagesTs']
-    output_dir = os.path.join(config.dataset_folder, 'labelsTs_predicted')
+    output_dir = get_predictions_output_dir(config)
     
     if not os.path.exists(input_dir):
         raise FileNotFoundError(f"Test images folder not found: {input_dir}")
@@ -324,8 +338,8 @@ def evaluation_visualization(config: TrainingConfig):
     paths = config.get_dataset_paths()
     labels_ts_dir = Path(paths['labelsTs'])
     images_ts_dir = Path(paths['imagesTs'])
-    pred_dir = Path(os.path.join(config.dataset_folder, 'labelsTs_predicted'))
-    output_dir = Path(os.path.join(config.dataset_folder, 'labelsTs_dice_and_viz'))
+    pred_dir = Path(get_predictions_output_dir(config))
+    output_dir = Path(get_eval_viz_output_dir(config))
     
     # Validate paths
     if not labels_ts_dir.exists():

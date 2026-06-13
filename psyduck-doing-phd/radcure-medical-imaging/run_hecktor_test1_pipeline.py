@@ -33,6 +33,10 @@ Usage:
     export DATASET_FOLDER=/path/to/nnunet_hecktor_test1/Dataset152_TotalSegmentator
     export NNUNET_WORK_DIR=/path/to/nnunet_hecktor_test1
     python run_hecktor_test1_pipeline.py --predict-only
+
+    # Store predictions/eval outside Dataset152 (e.g. Test3 retrain folder)
+    export HECKTOR_EVAL_OUTPUT_DIR=/path/to/nnunet_radheck_test_3_retrain/hecktor_validation
+    python run_hecktor_test1_pipeline.py --predict-only
 """
 
 import os
@@ -410,6 +414,12 @@ def main():
     parser.add_argument("--skip-predict", action="store_true", help="Skip nnUNet predict and eval")
     parser.add_argument("--skip-eval-viz", action="store_true", help="Run predict but skip evaluation/visualization")
     parser.add_argument("--predict-only", action="store_true", help="Only run nnUNet prediction (and eval/viz). Requires DATASET_FOLDER and NNUNET_WORK_DIR.")
+    parser.add_argument(
+        "--eval-output-dir",
+        default=os.getenv("HECKTOR_EVAL_OUTPUT_DIR", os.getenv("NNUNET_EVAL_OUTPUT_DIR", "")).strip(),
+        help="Write predictions and eval viz here instead of under DATASET_FOLDER "
+        "(env: HECKTOR_EVAL_OUTPUT_DIR or NNUNET_EVAL_OUTPUT_DIR)",
+    )
     args = parser.parse_args()
     cfg = CONFIG.copy()
     if args.skip_download:
@@ -554,7 +564,15 @@ def main():
         if "NNUNET_RETRAIN_PATH" not in os.environ:
             os.environ["NNUNET_RETRAIN_PATH"] = work_dir
         os.environ["DATASET_FOLDER"] = dataset_folder
-        log_dir = os.path.join(work_dir, "logs")
+        eval_output_dir = getattr(args, "eval_output_dir", "") or ""
+        if eval_output_dir:
+            eval_output_dir = os.path.abspath(eval_output_dir)
+            os.makedirs(eval_output_dir, exist_ok=True)
+            os.environ["NNUNET_EVAL_OUTPUT_DIR"] = eval_output_dir
+            log_dir = os.path.join(eval_output_dir, "logs")
+            print(f"Eval output dir:  {eval_output_dir}")
+        else:
+            log_dir = os.path.join(work_dir, "logs")
         os.environ["LOG_DIR"] = log_dir
         os.makedirs(log_dir, exist_ok=True)
         if organ_dict_path:
@@ -569,6 +587,8 @@ def main():
             add_nnunet_to_path,
             predict_on_test_set,
             evaluation_visualization,
+            get_predictions_output_dir,
+            get_eval_viz_output_dir,
         )
         config = TrainingConfig()
         add_nnunet_to_path(config.nnunet_path)
@@ -611,8 +631,9 @@ def main():
         if not getattr(args, "skip_eval_viz", False):
             print("\nStep 5b: Running evaluation and visualization (labelsTs_dice_and_viz)...")
             evaluation_visualization(config)
-        print(f"\nPredictions: {os.path.join(dataset_folder, 'labelsTs_predicted')}")
-        print(f"Dice/viz:    {os.path.join(dataset_folder, 'labelsTs_dice_and_viz')}")
+        print(f"\nPredictions: {get_predictions_output_dir(config)}")
+        print(f"Dice/viz:    {get_eval_viz_output_dir(config)}")
+        print(f"Logs:        {log_dir}")
     else:
         print("Skipping prediction (--skip-predict). Dataset ready at:", dataset_folder)
 
