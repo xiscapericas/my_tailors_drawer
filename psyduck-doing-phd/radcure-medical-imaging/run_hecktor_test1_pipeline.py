@@ -37,6 +37,9 @@ Usage:
     # Store predictions/eval outside Dataset152 (e.g. Test3 retrain folder)
     export HECKTOR_EVAL_OUTPUT_DIR=/path/to/nnunet_radheck_test_3_retrain/hecktor_validation
     python run_hecktor_test1_pipeline.py --predict-only
+
+    # Evaluate existing predictions only (no re-predict)
+    python run_hecktor_test1_pipeline.py --eval-only
 """
 
 import os
@@ -415,12 +418,19 @@ def main():
     parser.add_argument("--skip-eval-viz", action="store_true", help="Run predict but skip evaluation/visualization")
     parser.add_argument("--predict-only", action="store_true", help="Only run nnUNet prediction (and eval/viz). Requires DATASET_FOLDER and NNUNET_WORK_DIR.")
     parser.add_argument(
+        "--eval-only",
+        action="store_true",
+        help="Evaluate existing predictions (Dice CSV + viz). Requires labelsTs_predicted; skips nnUNet predict.",
+    )
+    parser.add_argument(
         "--eval-output-dir",
         default=os.getenv("HECKTOR_EVAL_OUTPUT_DIR", os.getenv("NNUNET_EVAL_OUTPUT_DIR", "")).strip(),
         help="Write predictions and eval viz here instead of under DATASET_FOLDER "
         "(env: HECKTOR_EVAL_OUTPUT_DIR or NNUNET_EVAL_OUTPUT_DIR)",
     )
     args = parser.parse_args()
+    if args.predict_only and args.eval_only:
+        raise SystemExit("Use either --predict-only or --eval-only, not both.")
     cfg = CONFIG.copy()
     if args.skip_download:
         cfg["skip_download"] = True
@@ -437,23 +447,24 @@ def main():
     organ_dict_path = cfg["organ_dictionary_path"]
     nnunet_path = cfg["nnunet_path"]
 
-    # ----- Predict-only mode: skip to Step 5 -----
-    if getattr(args, "predict_only", False):
+    # ----- Predict-only / eval-only: skip to Step 5 -----
+    if args.predict_only or args.eval_only:
         dataset_folder = os.getenv("DATASET_FOLDER")
         if not dataset_folder or not os.path.isdir(dataset_folder):
             raise FileNotFoundError(
-                "With --predict-only you must set DATASET_FOLDER to the dataset folder (e.g. .../Dataset152_TotalSegmentator) containing imagesTs and labelsTs."
+                "With --predict-only or --eval-only you must set DATASET_FOLDER to the dataset folder "
+                "(e.g. .../Dataset152_TotalSegmentator) containing imagesTs and labelsTs."
             )
         work_dir = os.getenv("NNUNET_WORK_DIR") or os.path.dirname(dataset_folder)
         if not os.path.isdir(os.path.join(dataset_folder, "imagesTs")):
             raise FileNotFoundError(f"Dataset folder must contain imagesTs: {dataset_folder}")
+        mode_label = "eval only" if args.eval_only else "predict only"
         print("=" * 70)
-        print("HECKTOR test1 pipeline (predict only)")
+        print(f"HECKTOR test1 pipeline ({mode_label})")
         print("=" * 70)
         print(f"Dataset folder:   {dataset_folder}")
         print(f"Work dir:         {work_dir}")
         print("=" * 70)
-        # Jump to Step 5
         cfg["skip_predict"] = False
     else:
         print("=" * 70)
@@ -552,14 +563,14 @@ def main():
             organ_dictionary_path=organ_dict_path or "",
         )
 
-    # When --predict-only, dataset_folder and work_dir were set above; dataset_id from folder name
-    if getattr(args, "predict_only", False):
+    # When --predict-only / --eval-only, dataset_folder and work_dir were set above
+    if args.predict_only or args.eval_only:
         import re
         match = re.search(r"Dataset(\d+)_TotalSegmentator", os.path.basename(dataset_folder))
         dataset_id = match.group(1) if match else dataset_id
 
-    # ----- Step 5: Run nnUNet predict and evaluation -----
-    if not cfg["skip_predict"]:
+    # ----- Step 5: Run nnUNet predict and/or evaluation -----
+    if not cfg["skip_predict"] or args.eval_only:
         # Use existing NNUNET_RETRAIN_PATH if set (e.g. path to trained model); otherwise use work_dir
         if "NNUNET_RETRAIN_PATH" not in os.environ:
             os.environ["NNUNET_RETRAIN_PATH"] = work_dir
@@ -586,6 +597,7 @@ def main():
         from nnunet_training.predict_and_evaluate import (
             add_nnunet_to_path,
             predict_on_test_set,
+            evaluate_predictions,
             evaluation_visualization,
             get_predictions_output_dir,
             get_eval_viz_output_dir,
@@ -593,47 +605,71 @@ def main():
         config = TrainingConfig()
         add_nnunet_to_path(config.nnunet_path)
         config.setup_nnunet_environment()
-        # Dataset ID from the *folder* (prediction data) vs *config* (model to use)
-        import re
-        match = re.search(r"Dataset(\d+)_TotalSegmentator", os.path.basename(dataset_folder))
-        dataset_id_from_folder = match.group(1) if match else None
-        using_external_model = (
-            dataset_id_from_folder is not None
-            and str(config.dataset_id) != str(dataset_id_from_folder)
-        )
-        if using_external_model:
-            print(
-                f"Using trained model from dataset ID {config.dataset_id} to predict on "
-                f"dataset folder (ID {dataset_id_from_folder})."
+        pred_dir = get_predictions_output_dir(config)
+
+        if args.eval_only:
+            if not os.path.isdir(pred_dir):
+                raise FileNotFoundError(
+                    f"Predictions folder not found: {pred_dir}\n"
+                    "Run prediction first, or set HECKTOR_EVAL_OUTPUT_DIR to match where predictions were saved."
+                )
+            pred_files = [f for f in os.listdir(pred_dir) if f.endswith(".nii.gz")]
+            if not pred_files:
+                raise FileNotFoundError(f"No prediction files in {pred_dir}")
+            print(f"\nUsing existing predictions: {pred_dir} ({len(pred_files)} cases)")
+            print("\nStep 5: Evaluating predictions...")
+            evaluate_predictions(config, pred_dir)
+            if not args.skip_eval_viz:
+                print("\nStep 5b: Running evaluation visualizations...")
+                evaluation_visualization(config)
+            print(f"\nPredictions: {pred_dir}")
+            print(f"Dice/viz:    {get_eval_viz_output_dir(config)}")
+            print(f"Logs:        {log_dir}")
+        else:
+            # Dataset ID from the *folder* (prediction data) vs *config* (model to use)
+            import re
+            match = re.search(r"Dataset(\d+)_TotalSegmentator", os.path.basename(dataset_folder))
+            dataset_id_from_folder = match.group(1) if match else None
+            using_external_model = (
+                dataset_id_from_folder is not None
+                and str(config.dataset_id) != str(dataset_id_from_folder)
             )
-        model_dataset_name = f"Dataset{config.dataset_id}_TotalSegmentator"
-        results_dataset_dir = os.path.join(config.main_retrain_path, "nnUNet_results", model_dataset_name)
-        model_output_dir = os.path.join(
-            results_dataset_dir,
-            f"{config.trainer}__nnUNetPlans__{config.configuration}",
-        )
-        if not using_external_model and not os.path.isfile(
-            os.path.join(dataset_folder, "dataset.json")
-        ):
-            raise FileNotFoundError(
-                f"dataset.json not found at {os.path.join(dataset_folder, 'dataset.json')}. "
-                "Ensure the dataset folder contains dataset.json (e.g. from Step 4 or from a previous run)."
+            if using_external_model:
+                print(
+                    f"Using trained model from dataset ID {config.dataset_id} to predict on "
+                    f"dataset folder (ID {dataset_id_from_folder})."
+                )
+            model_dataset_name = f"Dataset{config.dataset_id}_TotalSegmentator"
+            results_dataset_dir = os.path.join(config.main_retrain_path, "nnUNet_results", model_dataset_name)
+            model_output_dir = os.path.join(
+                results_dataset_dir,
+                f"{config.trainer}__nnUNetPlans__{config.configuration}",
             )
-        _ensure_trained_model_artifacts(
-            config,
-            model_output_dir,
-            results_dataset_dir,
-            dataset_folder,
-            using_external_model,
-        )
-        print("\nStep 5a: Running nnUNet prediction...")
-        predict_on_test_set(config)
-        if not getattr(args, "skip_eval_viz", False):
-            print("\nStep 5b: Running evaluation and visualization (labelsTs_dice_and_viz)...")
-            evaluation_visualization(config)
-        print(f"\nPredictions: {get_predictions_output_dir(config)}")
-        print(f"Dice/viz:    {get_eval_viz_output_dir(config)}")
-        print(f"Logs:        {log_dir}")
+            if not using_external_model and not os.path.isfile(
+                os.path.join(dataset_folder, "dataset.json")
+            ):
+                raise FileNotFoundError(
+                    f"dataset.json not found at {os.path.join(dataset_folder, 'dataset.json')}. "
+                    "Ensure the dataset folder contains dataset.json (e.g. from Step 4 or from a previous run)."
+                )
+            _ensure_trained_model_artifacts(
+                config,
+                model_output_dir,
+                results_dataset_dir,
+                dataset_folder,
+                using_external_model,
+            )
+            print("\nStep 5a: Running nnUNet prediction...")
+            predict_on_test_set(config)
+            if not args.skip_eval_viz:
+                pred_dir = get_predictions_output_dir(config)
+                print("\nStep 5b: Running evaluation metrics...")
+                evaluate_predictions(config, pred_dir)
+                print("\nStep 5c: Running evaluation visualizations...")
+                evaluation_visualization(config)
+            print(f"\nPredictions: {get_predictions_output_dir(config)}")
+            print(f"Dice/viz:    {get_eval_viz_output_dir(config)}")
+            print(f"Logs:        {log_dir}")
     else:
         print("Skipping prediction (--skip-predict). Dataset ready at:", dataset_folder)
 

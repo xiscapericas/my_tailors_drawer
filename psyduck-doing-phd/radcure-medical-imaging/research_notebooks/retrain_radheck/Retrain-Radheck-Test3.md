@@ -117,6 +117,15 @@ Outputs (under `hecktor_validation/`, **not** in Dataset152):
 
 Dataset152 `labelsTs_predicted` from earlier runs is left unchanged.
 
+**Evaluate only** (predictions already exist, skip nnUNet predict):
+
+```bash
+# same env vars as above, including HECKTOR_EVAL_OUTPUT_DIR
+python run_hecktor_test1_pipeline.py --eval-only
+```
+
+Adds metrics CSV under `hecktor_validation/logs/evaluation_d650.csv` and viz under `hecktor_validation/labelsTs_dice_and_viz/`.
+
 ## Verify HECKTOR was in Test3 training
 
 Training used whatever is in **Dataset650** (`imagesTr` + `imagesVa`). Check the build manifest:
