@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+build/
+tfplan
+*.zip
+
+# OS
+.DS_Store
+
+# Secrets / certs
+*.pem
+*.key
+*.crt
+certs/
