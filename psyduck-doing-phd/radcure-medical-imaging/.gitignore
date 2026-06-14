@@ -64,3 +64,7 @@ TotalSegmentatorRetrain/
 !use-case-study/images/
 !use-case-study/images/*.png
 
+# Research notebook figures (tracked for markdown reports)
+!research_notebooks/retrain_epoch_study/images/
+!research_notebooks/retrain_epoch_study/images/*.png
+
