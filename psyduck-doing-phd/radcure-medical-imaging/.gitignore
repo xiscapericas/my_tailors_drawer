@@ -46,7 +46,10 @@ env/
 Thumbs.db
 
 # Server-only paths for radheck (copy from radheck_server_paths.example.json)
-research_notebooks/retrain_radheck/radheck_server_paths.json
+pipelines/radheck/radheck_server_paths.json
+
+# Server path overrides for experiments (copy from experiments/configs/local.example.yaml)
+experiments/configs/local.yaml
 
 # Project specific
 *.log

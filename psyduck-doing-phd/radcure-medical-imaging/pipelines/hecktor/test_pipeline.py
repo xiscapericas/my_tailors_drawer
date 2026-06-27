@@ -7,7 +7,7 @@ All paths are configurable via environment variables or script defaults.
 
 Usage:
     # Use defaults (see CONFIG below)
-    python run_hecktor_test1_pipeline.py
+    python -m pipelines.hecktor.test_pipeline
 
     # Override via env
     export HECKTOR_S3_URI=s3://my-bucket/HECKTOR/test1.zip
@@ -15,31 +15,31 @@ Usage:
     export HECKTOR_UNZIPPED_DIR=/path/to/hecktor/test1/unzipped
     export NNUNET_WORK_DIR=/path/to/work/nnunet_hecktor_test1
     export DATASET_ID=152
-    python run_hecktor_test1_pipeline.py
+    python -m pipelines.hecktor.test_pipeline
 
     # Use existing unzipped cases (skip download and unzip, run process + build dataset)
     export HECKTOR_CASES_ROOT=/path/to/hecktor/test1/unzipped/test1
     export NNUNET_WORK_DIR=/path/to/work/nnunet_hecktor_test1
-    python run_hecktor_test1_pipeline.py
+    python -m pipelines.hecktor.test_pipeline
 
     # Only run prediction (dataset and model already exist)
     export DATASET_FOLDER=/path/to/work/nnunet_hecktor_test1/Dataset152_TotalSegmentator
     export NNUNET_WORK_DIR=/path/to/work/nnunet_hecktor_test1
-    python run_hecktor_test1_pipeline.py --predict-only
+    python -m pipelines.hecktor.test_pipeline --predict-only
 
     # Predict using a different dataset's trained model (e.g. Dataset366 model on Dataset152 images)
     export NNUNET_RETRAIN_PATH=/path/to/nnunet_retrain_radcure366
     export DATASET_ID=366
     export DATASET_FOLDER=/path/to/nnunet_hecktor_test1/Dataset152_TotalSegmentator
     export NNUNET_WORK_DIR=/path/to/nnunet_hecktor_test1
-    python run_hecktor_test1_pipeline.py --predict-only
+    python -m pipelines.hecktor.test_pipeline --predict-only
 
     # Store predictions/eval outside Dataset152 (e.g. Test3 retrain folder)
     export HECKTOR_EVAL_OUTPUT_DIR=/path/to/nnunet_radheck_test_3_retrain/hecktor_validation
-    python run_hecktor_test1_pipeline.py --predict-only
+    python -m pipelines.hecktor.test_pipeline --predict-only
 
     # Evaluate existing predictions only (no re-predict)
-    python run_hecktor_test1_pipeline.py --eval-only
+    python -m pipelines.hecktor.test_pipeline --eval-only
 """
 
 import os

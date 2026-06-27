@@ -1,0 +1,46 @@
+# Test1 — RADCURE-only baseline (Dataset366)
+
+experiment:
+  id: test1
+  name: RADCURE-only baseline
+  status: completed
+  hypothesis: Baseline nnUNet on RADCURE alone; expect weak HECKTOR generalisation.
+
+training:
+  needs_dataset_build: false
+  needs_plan_preprocess: true
+  reuse_preprocessed_from: null
+
+  cohorts: [radcure]
+  dataset_id: 366
+  dataset_folder: ${RADCURE_DATASET_366}
+  nnunet_retrain_path: ${RETRAIN_RADCURE_366}
+
+  trainer: nnUNetTrainerNoMirroring
+  configuration: 3d_fullres
+  fold: 0
+  epochs: 1000
+
+  env:
+    nnUNet_compile: "false"
+    NNUNET_DISABLE_TTA: "true"
+
+  steps:
+    - prepare
+    - plan
+    - train
+
+evaluation:
+  model_dataset_id: 366
+  radcure:
+    dataset_folder: ${RADCURE_DATASET_366}
+    steps: [evaluate, evaluation_visualization]
+  hecktor:
+    dataset_folder: ${HECKTOR_TEST_DATASET}
+    steps: [predict_only]
+    # Uses Dataset366 model on Dataset152 images (cross-dataset)
+
+results:
+  primary_metric: GTVp Dice
+  radcure: { mean_dice: 0.377, n_cases: 74 }
+  hecktor: { mean_dice: 0.330, n_cases: 48 }

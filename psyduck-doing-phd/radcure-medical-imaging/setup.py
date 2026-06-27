@@ -12,6 +12,12 @@ setup(
     long_description_content_type="text/markdown",
     packages=find_packages(),
     python_requires='>=3.7',
+    entry_points={
+        'console_scripts': [
+            'run-hecktor-test=pipelines.hecktor.test_pipeline:main',
+            'build-radheck-dataset=pipelines.radheck.build_nnunet_dataset:main',
+        ],
+    },
     install_requires=[
         'boto3>=1.26.0',
         'numpy>=1.21.0',

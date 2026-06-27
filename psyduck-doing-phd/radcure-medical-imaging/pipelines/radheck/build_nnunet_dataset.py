@@ -19,7 +19,7 @@ runs — blosc2 and ``image_processor`` are not required.
 If the training zip already exists under ``radheck_download_dir``, the download step is skipped.
 
 Run from repository root:
-    python research_notebooks/retrain_radheck/build_radheck_nnunet_dataset.py
+    python -m pipelines.radheck.build_nnunet_dataset
 
 Optional environment overrides (same names as JSON keys, UPPER_SNAKE for env):
     RADHECK_SERVER_CONFIG, RADHECK_S3_URI, RADHECK_DOWNLOAD_DIR, RADHECK_UNZIPPED_DIR,
@@ -188,7 +188,7 @@ def _verify_blosc2_import() -> None:
                 "  1) Use a clean venv and only pip install there:\n"
                 "       python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt\n"
                 "  2) Avoid mixing user-site with system packages:\n"
-                "       PYTHONNOUSERSITE=1 python research_notebooks/retrain_radheck/build_radheck_nnunet_dataset.py\n"
+                "       PYTHONNOUSERSITE=1 python -m pipelines.radheck.build_nnunet_dataset\n"
                 "  3) Reinstall both into the SAME site-packages as this interpreter:\n"
                 "       python -m pip uninstall -y blosc2 numpy\n"
                 "       python -m pip install --no-cache-dir numpy blosc2\n"
@@ -240,7 +240,7 @@ def _verify_radheck_dependencies(*, merge_only: bool = False) -> None:
         ) from e
 
 
-# Short TMPDIR for multiprocessing (same idea as run_hecktor_test1_pipeline)
+# Short TMPDIR for multiprocessing (same idea as pipelines.hecktor.test_pipeline)
 _tmp = os.environ.get("TMPDIR") or os.environ.get("TEMP") or ""
 if not _tmp or len(os.path.abspath(_tmp)) > 60:
     os.environ["TMPDIR"] = "/tmp"
@@ -264,7 +264,7 @@ def load_radheck_server_config(path: Path) -> Dict[str, Any]:
             "Create a JSON file on the server (not in Git) with your paths. For example:\n"
             f"  cp {example} {_DEFAULT_SERVER_CONFIG_PATH}\n"
             "then edit the values. Or set RADHECK_SERVER_CONFIG to your JSON path.\n"
-            "See research_notebooks/retrain_radheck/README.md"
+            "See pipelines/radheck/README.md"
         )
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
@@ -602,7 +602,7 @@ def main() -> None:
     if not args.skip_process:
         print("Dependency check OK (numpy, nibabel, blosc2, boto3, image_processor).")
 
-    from run_hecktor_test1_pipeline import (  # noqa: E402
+    from pipelines.hecktor.test_pipeline import (
         detect_hecktor_cases_root,
         download_from_s3,
         hecktor_case_processor_memory_kwargs,
@@ -740,9 +740,7 @@ def main() -> None:
     dedupe_report = None
     split_audit_after = None
     if not args.skip_dedupe_splits:
-        if str(_SCRIPT_DIR) not in sys.path:
-            sys.path.insert(0, str(_SCRIPT_DIR))
-        from nnunet_split_utils import (  # noqa: E402
+        from pipelines.radheck.nnunet_split_utils import (
             audit_split_overlaps,
             deduplicate_dataset_splits,
             print_audit,

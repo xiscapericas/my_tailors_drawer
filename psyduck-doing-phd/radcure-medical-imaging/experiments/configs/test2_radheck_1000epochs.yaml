@@ -1,0 +1,48 @@
+# Test2 — RADHECK combined training, 1000 epochs (Dataset650)
+
+experiment:
+  id: test2
+  name: RADHECK combined — 1000 epochs
+  status: completed
+  hypothesis: HECKTOR training data improves HECKTOR test GTVp Dice.
+
+training:
+  needs_dataset_build: true
+  build_script: pipelines/radheck/build_nnunet_dataset.py
+  needs_plan_preprocess: true
+  reuse_preprocessed_from: null
+
+  cohorts: [radcure, hecktor]
+  dataset_id: 650
+  dataset_folder: ${RADHECK_DATASET}
+  nnunet_retrain_path: ${RETRAIN_RADHECK_TEST2}
+
+  trainer: nnUNetTrainerNoMirroring
+  configuration: 3d_fullres
+  fold: 0
+  epochs: 1000
+
+  env:
+    nnUNet_compile: "false"
+    CUDA_VISIBLE_DEVICES: "1"
+    NNUNET_DISABLE_TTA: "true"
+
+  steps:
+    - prepare
+    - plan
+    - train
+
+evaluation:
+  model_dataset_id: 650
+  radcure:
+    dataset_folder: ${RADHECK_DATASET}
+    steps: [evaluate, evaluation_visualization]
+  hecktor:
+    dataset_folder: ${HECKTOR_TEST_DATASET}
+    eval_output_dir: null  # writes under Dataset152 by default
+    steps: [predict_only]
+
+results:
+  primary_metric: GTVp Dice
+  radcure: { mean_dice: 0.383, n_cases: 74 }
+  hecktor: { mean_dice: 0.486, n_cases: 48 }

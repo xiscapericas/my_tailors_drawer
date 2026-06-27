@@ -1,4 +1,9 @@
-## Results
+> **Runbook (server commands)** — not the canonical experiment record.  
+> **Results & hypotheses:** [`experiments/registry.yaml`](../../experiments/registry.yaml) (GTVp Dice) and [`retrain_epoch_study.md`](../retrain_epoch_study/retrain_epoch_study.md).
+
+# Test2 — RADHECK combined (1000 epochs)
+
+## Results snapshot (multi-organ summary from this run)
 
 ### Dice Score Summary
 
@@ -32,3 +37,7 @@ However, the improvement is highly dependent on the dataset being evaluated:
 * The performance discrepancy indicates strong **dataset dependency**.
 * No evidence of improved cross-dataset generalization was observed.
 * Prediction patterns between the old and new models show little correlation, suggesting that both models rely on substantially different learned representations.
+
+---
+
+**Note:** Tables above summarise this run (multi-organ / pipeline metrics). For **GTVp Dice** on Test1–3 (74 RADCURE + 48 HECKTOR cases), see [`experiments/registry.yaml`](../../experiments/registry.yaml).

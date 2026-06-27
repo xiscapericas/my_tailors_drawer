@@ -1,0 +1,48 @@
+# Test3 — RADHECK combined training, 700 epochs (Dataset650)
+
+experiment:
+  id: test3
+  name: RADHECK combined — 700 epochs
+  status: completed
+  hypothesis: Fewer epochs (700) reduce overfitting; improve HECKTOR without hurting RADCURE.
+
+training:
+  needs_dataset_build: false
+  needs_plan_preprocess: false
+  reuse_preprocessed_from: ${RETRAIN_RADHECK_TEST2}
+
+  cohorts: [radcure, hecktor]
+  dataset_id: 650
+  dataset_folder: ${RADHECK_DATASET}
+  nnunet_retrain_path: ${RETRAIN_RADHECK_TEST3}
+  nnunet_preprocessed_path: ${RETRAIN_RADHECK_TEST2}/nnUNet_preprocessed
+
+  trainer: nnUNetTrainer_700epochs_NoMirroring
+  configuration: 3d_fullres
+  fold: 0
+  epochs: 700
+  custom_trainer_install: python -m nnunet_training.install_trainer_variants
+
+  env:
+    nnUNet_compile: "false"
+    CUDA_VISIBLE_DEVICES: "1"
+    NNUNET_DISABLE_TTA: "true"
+
+  steps:
+    - prepare --link-raw
+    - train
+
+evaluation:
+  model_dataset_id: 650
+  radcure:
+    dataset_folder: ${RADHECK_DATASET}
+    steps: [evaluate, evaluation_visualization]
+  hecktor:
+    dataset_folder: ${HECKTOR_TEST_DATASET}
+    eval_output_dir: ${RETRAIN_RADHECK_TEST3}/hecktor_validation
+    steps: [predict_only, eval_only]
+
+results:
+  primary_metric: GTVp Dice
+  radcure: { mean_dice: 0.383, n_cases: 74 }
+  hecktor: { mean_dice: 0.545, n_cases: 48 }

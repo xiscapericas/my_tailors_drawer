@@ -16,7 +16,7 @@ NOT deleted (processed inputs preserved):
   - Source combined dataset imagesTr/Va/Ts (unless --remove-combined-dataset)
 
 Run from repo root:
-    python research_notebooks/retrain_radheck/cleanup_retrain_artifacts.py \\
+    python -m pipelines.radheck.cleanup_retrain_artifacts \\
         --nnunet-retrain-path /path/to/nnunet_radheck_test_1_retrain \\
         --dataset-folder /path/to/Dataset650_TotalSegmentator \\
         --hecktor-test-dataset /path/to/Dataset152_TotalSegmentator

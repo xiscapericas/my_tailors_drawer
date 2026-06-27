@@ -1,26 +1,35 @@
-# Research Notebooks
+# Research notebooks and studies
 
-This folder contains Jupyter notebooks used for research, experimentation, and feature development.
+**Documentation hub:** [`docs/README.md`](../docs/README.md) · Research docs are §3-E in [`docs/documentation-index.md`](../docs/documentation-index.md).
 
-## Purpose
+Exploratory work: notebooks, analysis reports, and paper drafts. Pipeline orchestration lives in [`pipelines/`](../pipelines/).
 
-Notebooks in this folder are used to:
-- Explore and analyze data
-- Develop and test new features
-- Compare different metrics and evaluation methods
-- Prototype visualization and analysis tools
-- Conduct research experiments
+## Notebooks
+
+| Notebook | Purpose |
+|----------|---------|
+| `compare_dice_surface_dice.ipynb` | DICE vs Surface DICE comparison |
+| `background_head_organs_debug.ipynb` | Background / head / organs mask pipeline debug |
+| `hecktor_explore_colab.ipynb` | HECKTOR case load + overlay (Colab) |
+| `hecktor_preprocessing_preview_colab.ipynb` | HECKTOR preprocessing preview (Colab) |
+
+## Markdown studies
+
+| Folder / file | Purpose |
+|---------------|---------|
+| [`retrain_epoch_study/`](retrain_epoch_study/retrain_epoch_study.md) | Epoch count study (Test1–3 narrative, figures in `images/`) |
+| [`Surface_Dice_Analysis_Report.md`](Surface_Dice_Analysis_Report.md) | Surface Dice analysis notes |
+
+## Related (implementation, not notebooks)
+
+| Path | Role |
+|------|------|
+| [`pipelines/radheck/`](../pipelines/radheck/) | RADHECK dataset build, leak checks, server runbooks |
+| [`experiments/`](../experiments/) | Experiment registry and YAML configs (canonical Test1–3 record) |
+| [`docs/PROJECT_LAYOUT.md`](../docs/PROJECT_LAYOUT.md) | Full repo map |
 
 ## Guidelines
 
-- **Only notebooks**: This folder is exclusively for Jupyter notebook files (`.ipynb`)
-- **Documentation**: Each notebook should be self-contained with clear explanations
-- **Temporary nature**: Notebooks here are for research purposes and may be experimental
-- **Organization**: Consider using descriptive names that indicate the notebook's purpose
-
-## Examples
-
-- `compare_dice_surface_dice.ipynb` - Comparison of DICE vs Surface DICE metrics
-- `background_head_organs_debug.ipynb` - Debug and fix background / anatomical_region / organs / other-tissue mask pipeline
-- `hecktor_explore_colab.ipynb` - Load HECKTOR case from Google Drive (Colab) and visualize CT with mask overlay
-- `hecktor_preprocessing_preview_colab.ipynb` - Run RADCURE-style preprocessing on HECKTOR in Colab (TotalSegmentator, background, combined mask, tumor, save for model)
+- Keep notebooks self-contained with clear markdown cells.
+- When an idea stabilises, move logic to `image_processor/` or `nnunet_training/` — do not grow permanent code only in notebooks.
+- Record completed experiment metrics in [`experiments/registry.yaml`](../experiments/registry.yaml).

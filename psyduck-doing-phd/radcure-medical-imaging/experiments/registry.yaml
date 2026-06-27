@@ -1,0 +1,165 @@
+# RADHECK / RADCURE experiment registry
+# Update this file after every completed experiment.
+# Path values use placeholders — set real paths in experiments/configs/local.yaml (gitignored) or server .env.
+
+schema_version: 1
+
+# ---------------------------------------------------------------------------
+# Pipeline (fixed unless you explicitly change preprocessing)
+# ---------------------------------------------------------------------------
+pipeline:
+  description: |
+    Two-stage head-and-neck GTVp segmentation pipeline:
+    1. Preprocessing (image_processor): DICOM or NIfTI → TotalSegmentator organs →
+       combined mask (head/body, background, organs, tumor/GTVp).
+    2. nnUNet: train on labelsTr/Va, predict on test sets, evaluate Dice (+ Surface Dice),
+       optional slice-by-slice PDFs (CT, GT, prediction per frame).
+  stages:
+    preprocess:
+      radcure: process_all_cases.py
+      hecktor: image_processor CaseProcessor + pipelines.radheck.build_nnunet_dataset
+    train: train_nnunet.py
+    evaluate_radcure: train_nnunet.py --step evaluate
+    evaluate_hecktor: python -m pipelines.hecktor.test_pipeline --predict-only | --eval-only
+  primary_metric: GTVp Dice
+  secondary_metrics:
+    - Surface Dice (3 mm tolerance)
+    - per-organ Dice (exploratory)
+
+# ---------------------------------------------------------------------------
+# Path templates (replace on server; copy to configs/local.yaml)
+# ---------------------------------------------------------------------------
+path_templates:
+  repo_root: /path/to/radcure-medical-imaging
+  organ_dictionary: /path/to/radcure_dictionary.json
+  radcure_dataset_366: /path/to/work/nnunet_retrain_radcure366/Dataset366_TotalSegmentator
+  radheck_dataset_650: /path/to/work/nnunet_radheck_test_1/Dataset650_TotalSegmentator
+  hecktor_test_152: /path/to/work/nnunet_hecktor_test1/Dataset152_TotalSegmentator
+  retrain_radcure_366: /path/to/work/nnunet_retrain_radcure366
+  retrain_radheck_test2: /path/to/work/nnunet_radheck_test_1_retrain
+  retrain_radheck_test3: /path/to/work/nnunet_radheck_test_3_retrain
+
+# ---------------------------------------------------------------------------
+# Test pools (what “evaluate on RADCURE / HECKTOR” means)
+# ---------------------------------------------------------------------------
+evaluation:
+  radcure_test:
+    description: Held-out RADCURE cases from Dataset366 splits (copied into combined Dataset650 imagesTs)
+    images: "{radheck_dataset_650}/imagesTs"
+    labels: "{radheck_dataset_650}/labelsTs"
+    n_cases: 74
+  hecktor_test:
+    description: Held-out HECKTOR test set (Dataset152); never in RADHECK training
+    images: "{hecktor_test_152}/imagesTs"
+    labels: "{hecktor_test_152}/labelsTs"
+    n_cases: 48
+
+# ---------------------------------------------------------------------------
+# Experiments
+# ---------------------------------------------------------------------------
+experiments:
+  test1:
+    id: test1
+    name: RADCURE-only baseline
+    status: completed
+    config_file: configs/test1_radcure_only.yaml
+    hypothesis: Baseline nnUNet trained only on RADCURE (366) generalises poorly to HECKTOR.
+    training:
+      cohorts: [radcure]
+      dataset_id: 366
+      dataset_folder_key: radcure_dataset_366
+      nnunet_retrain_path_key: retrain_radcure_366
+      trainer: nnUNetTrainerNoMirroring
+      epochs: 1000
+      configuration: 3d_fullres
+    evaluation:
+      model_dataset_id: 366
+    results:
+      primary_metric: GTVp Dice
+      radcure:
+        mean_dice: 0.377
+        n_cases: 74
+      hecktor:
+        mean_dice: 0.330
+        n_cases: 48
+    notes: |
+      Train exclusively on RADCURE-366. Evaluate on RADCURE test (366/650 Ts) and HECKTOR test (152).
+      Source: research_notebooks/retrain_epoch_study/retrain_epoch_study.md
+
+  test2:
+    id: test2
+    name: RADHECK combined — 1000 epochs
+    status: completed
+    config_file: configs/test2_radheck_1000epochs.yaml
+    hypothesis: Adding HECKTOR training cases improves HECKTOR test GTVp Dice without hurting RADCURE much.
+    training:
+      cohorts: [radcure, hecktor]
+      dataset_id: 650
+      dataset_folder_key: radheck_dataset_650
+      nnunet_retrain_path_key: retrain_radheck_test2
+      trainer: nnUNetTrainerNoMirroring
+      epochs: 1000
+      configuration: 3d_fullres
+      build_script: pipelines/radheck/build_nnunet_dataset.py
+    evaluation:
+      model_dataset_id: 650
+      hecktor_eval_output_subdir: null  # default under Dataset152 unless set
+    results:
+      primary_metric: GTVp Dice
+      radcure:
+        mean_dice: 0.383
+        n_cases: 74
+      hecktor:
+        mean_dice: 0.486
+        n_cases: 48
+    notes: |
+      Combined Dataset650 (RADCURE-366 splits + HECKTOR train/val). Same preprocessing as Test3.
+      Also documented in pipelines/radheck/Retrain-Radheck-Test2.md (multi-organ summary).
+
+  test3:
+    id: test3
+    name: RADHECK combined — 700 epochs
+    status: completed
+    config_file: configs/test3_radheck_700epochs.yaml
+    hypothesis: Reducing training from 1000 to 700 epochs reduces overfitting; improves HECKTOR, stable on RADCURE.
+    training:
+      cohorts: [radcure, hecktor]
+      dataset_id: 650
+      dataset_folder_key: radheck_dataset_650
+      nnunet_retrain_path_key: retrain_radheck_test3
+      nnunet_preprocessed_path_key: retrain_radheck_test2  # reuse Test2 preprocess
+      trainer: nnUNetTrainer_700epochs_NoMirroring
+      epochs: 700
+      configuration: 3d_fullres
+      custom_trainer_install: python -m nnunet_training.install_trainer_variants
+    evaluation:
+      model_dataset_id: 650
+      hecktor_eval_output_subdir: hecktor_validation
+    results:
+      primary_metric: GTVp Dice
+      radcure:
+        mean_dice: 0.383
+        n_cases: 74
+      hecktor:
+        mean_dice: 0.545
+        n_cases: 48
+    notes: |
+      Reuses nnUNet_preprocessed from Test2; separate nnUNet_results under test_3_retrain.
+      HECKTOR eval outputs can go to {retrain_radheck_test3}/hecktor_validation.
+      Source: pipelines/radheck/Retrain-Radheck-Test3.md
+
+# ---------------------------------------------------------------------------
+# Next experiment — naming rules (see experiments/README.md § Naming convention)
+# ---------------------------------------------------------------------------
+#
+# Before Test4+:
+#   1. "Test{N} changes ___ compared to {changed_from}; everything else is identical."
+#   2. configs/test{N}_{cohort}_{variable}.yaml  (cohort: radcure | radheck)
+#   3. local.yaml: RETRAIN_RADHECK_TEST{N} → .../nnunet_radheck_test_{N}_retrain
+#   4. Add block below; set status planned → running → completed; fill results
+#
+# next:
+#   id: test4
+#   config_file: configs/test4_radheck_500epochs.yaml
+#   changed_from: test3
+#   hypothesis: ""

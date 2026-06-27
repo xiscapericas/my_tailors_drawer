@@ -7,29 +7,23 @@ Only removes stems tied to HECKTOR case folders in split_manifest.json (not RADC
 stems that happen to share the same case_00X string).
 
 Run from repo root:
-    python research_notebooks/retrain_radheck/remove_hecktor_test_leak.py \\
+    python -m pipelines.radheck.remove_hecktor_test_leak \\
         --combined-dataset /path/to/Dataset650_TotalSegmentator \\
         --hecktor-test-dataset /path/to/Dataset152_TotalSegmentator \\
         --dry-run
 
-Then re-run verify_radheck_no_leak.py and refresh dataset.json (train_nnunet prepare).
+Then re-run verify_radheck_no_leak and refresh dataset.json (train_nnunet prepare).
 """
 
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import os
-import sys
-from pathlib import Path
 from typing import List, Set
 
-_SCRIPT_DIR = Path(__file__).resolve().parent
-if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))
-
-from nnunet_split_utils import (  # noqa: E402
+from pipelines.radheck import build_nnunet_dataset as build_mod
+from pipelines.radheck.nnunet_split_utils import (
     audit_split_overlaps,
     list_stems_in_split,
     print_audit,
@@ -38,13 +32,7 @@ from nnunet_split_utils import (  # noqa: E402
 
 
 def _load_build_helpers():
-    build_path = _SCRIPT_DIR / "build_radheck_nnunet_dataset.py"
-    spec = importlib.util.spec_from_file_location("build_radheck_nnunet_dataset", build_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load {build_path}")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    return build_mod
 
 
 def hecktor_train_val_stems(manifest: dict, build_mod, cases_root: str) -> Set[str]:

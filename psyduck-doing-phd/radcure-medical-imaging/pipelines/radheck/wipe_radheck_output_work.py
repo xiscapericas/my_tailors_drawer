@@ -11,20 +11,20 @@ Does NOT touch:
 Typical full reset on the server:
 
   # 1) Preview
-  python research_notebooks/retrain_radheck/wipe_radheck_output_work.py \\
+  python -m pipelines.radheck.wipe_radheck_output_work \\
       --output-work /media/HDD_8TB/xisca/work/nnunet_radheck_test_1 \\
       --also-wipe-retrain /media/HDD_8TB/xisca/work/nnunet_radheck_test_1_retrain \\
       --dry-run
 
   # 2) Wipe
-  python research_notebooks/retrain_radheck/wipe_radheck_output_work.py \\
+  python -m pipelines.radheck.wipe_radheck_output_work \\
       --output-work /media/HDD_8TB/xisca/work/nnunet_radheck_test_1 \\
       --also-wipe-retrain /media/HDD_8TB/xisca/work/nnunet_radheck_test_1_retrain \\
       --yes
 
   # 3) Rebuild dataset (processed HECKTOR already on disk)
-  python research_notebooks/retrain_radheck/build_radheck_nnunet_dataset.py \\
-      --config research_notebooks/retrain_radheck/radheck_server_paths.json \\
+  python -m pipelines.radheck.build_nnunet_dataset \\
+      --config pipelines/radheck/radheck_server_paths.json \\
       --skip-download --skip-process \\
       --hecktor-cases-root /media/HDD_8TB/xisca/dataset/hecktor/HECKTOR2025_task1_training/unzipped/task1
 
@@ -116,7 +116,7 @@ def main() -> int:
 
     targets: List[Tuple[Path, str]] = []
     for d in _dataset_dirs(output_work):
-        targets.append((d, "combined nnUNet dataset (rebuild with build_radheck_nnunet_dataset.py)"))
+        targets.append((d, "combined nnUNet dataset (rebuild with build_nnunet_dataset.py)"))
 
     if retrain:
         targets.extend(_retrain_artifacts(retrain))
@@ -160,14 +160,14 @@ def main() -> int:
 
     print("\n--- Next: rebuild dataset ---")
     print(
-        "python research_notebooks/retrain_radheck/build_radheck_nnunet_dataset.py \\\n"
-        "  --config research_notebooks/retrain_radheck/radheck_server_paths.json \\\n"
+        "python -m pipelines.radheck.build_nnunet_dataset \\\n"
+        "  --config pipelines/radheck/radheck_server_paths.json \\\n"
         "  --skip-download --skip-process \\\n"
         "  --hecktor-cases-root /media/HDD_8TB/xisca/dataset/hecktor/HECKTOR2025_task1_training/unzipped/task1"
     )
     print("\n--- Then verify ---")
     print(
-        "python research_notebooks/retrain_radheck/verify_radheck_no_leak.py \\\n"
+        "python -m pipelines.radheck.verify_radheck_no_leak \\\n"
         "  --combined-dataset <new DatasetXXX under output work> \\\n"
         "  --hecktor-test-dataset /media/HDD_8TB/xisca/work/nnunet_hecktor_test1/Dataset152_TotalSegmentator \\\n"
         "  --radcure-dataset /media/HDD_8TB/xisca/work/nnunet_retrain_radcure366/Dataset366_TotalSegmentator"

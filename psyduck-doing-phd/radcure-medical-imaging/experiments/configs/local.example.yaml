@@ -1,0 +1,18 @@
+# Copy to local.yaml (gitignored) and fill with your server paths.
+# The agent and run scripts resolve ${VAR} from this file + shell .env.
+#
+# Naming: Test{N} → RETRAIN_RADHECK_TEST{N} → .../nnunet_radheck_test_{N}_retrain
+# See experiments/README.md § Naming convention.
+# Legacy: test2 id uses nnunet_radheck_test_1_retrain — do not reuse that pattern for Test4+.
+
+RADCURE_DATASET_366: /path/to/work/nnunet_retrain_radcure366/Dataset366_TotalSegmentator
+RADHECK_DATASET: /path/to/work/nnunet_radheck_test_1/Dataset650_TotalSegmentator
+HECKTOR_TEST_DATASET: /path/to/work/nnunet_hecktor_test1/Dataset152_TotalSegmentator
+
+RETRAIN_RADCURE_366: /path/to/work/nnunet_retrain_radcure366
+RETRAIN_RADHECK_TEST2: /path/to/work/nnunet_radheck_test_1_retrain  # legacy folder name (test2)
+RETRAIN_RADHECK_TEST3: /path/to/work/nnunet_radheck_test_3_retrain
+# RETRAIN_RADHECK_TEST4: /path/to/work/nnunet_radheck_test_4_retrain
+
+ORGAN_DICTIONARY_PATH: /path/to/radcure_dictionary.json
+NNUNET_PATH: /path/to/nnUNet

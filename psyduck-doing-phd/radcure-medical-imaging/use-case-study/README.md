@@ -1,5 +1,8 @@
 # TotalSegmentator Retrain on RADCURE366
 
+> **Archived use case** — early Dataset366 / TotalSegmentator retrain narrative.  
+> Current RADHECK work (RADCURE + HECKTOR, Test1–3) is documented in [`experiments/`](../../experiments/README.md) and [`retrain_epoch_study/`](../research_notebooks/retrain_epoch_study/retrain_epoch_study.md).
+
 **Author:** Xisca Pe  
 **Date:** January 03, 2026
 

@@ -12,7 +12,7 @@ Important: RADCURE uses case_0014 (4 digits), HECKTOR uses case_014 (3 digits). 
 (Tr∪Va)∩152 check can false-alarm on shared strings; section 3 uses manifest HECKTOR IDs only.
 
 Run from repo root:
-    python research_notebooks/retrain_radheck/verify_radheck_no_leak.py \\
+    python -m pipelines.radheck.verify_radheck_no_leak \\
         --combined-dataset /path/to/Dataset650_TotalSegmentator \\
         --hecktor-test-dataset /path/to/Dataset152_TotalSegmentator \\
         --radcure-dataset /path/to/Dataset366_TotalSegmentator
@@ -21,28 +21,17 @@ Run from repo root:
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import os
 import sys
-from pathlib import Path
 from typing import List, Set
 
-_SCRIPT_DIR = Path(__file__).resolve().parent
-if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))
-
-from nnunet_split_utils import all_radcure_stems, list_stems_in_split  # noqa: E402
+from pipelines.radheck import build_nnunet_dataset as build_mod
+from pipelines.radheck.nnunet_split_utils import all_radcure_stems, list_stems_in_split
 
 
 def _load_build_helpers():
-    build_path = _SCRIPT_DIR / "build_radheck_nnunet_dataset.py"
-    spec = importlib.util.spec_from_file_location("build_radheck_nnunet_dataset", build_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load {build_path}")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    return build_mod
 
 
 def _report_overlap(label: str, a: Set[str], b: Set[str], limit: int = 30) -> List[str]:
@@ -190,7 +179,7 @@ def main() -> int:
     print("=" * 70)
     if failures:
         print(f"RESULT: LEAK DETECTED — {len(set(failures))} overlapping case stem(s).")
-        print("If section 3 failed: python research_notebooks/retrain_radheck/remove_hecktor_test_leak.py")
+        print("If section 3 failed: python -m pipelines.radheck.remove_hecktor_test_leak")
         return 1
     if naive_152 and false_pos == naive_152:
         print("RESULT: OK — overlaps with Dataset152 are filename collisions only (not HECKTOR leak).")

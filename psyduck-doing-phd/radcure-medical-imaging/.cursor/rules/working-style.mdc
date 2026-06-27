@@ -19,6 +19,8 @@ The repository contains two main types of work:
    - Code that runs on a server to process data and generate results
    - Maintained for reproducibility and publication in GitHub
 
+**Documentation hub:** `docs/README.md` — purpose (§1), Cursor setup (§2), main doc index (§3). Add new docs there; do not create disconnected READMEs without linking back.
+
 When working in this repository, always preserve the distinction between exploratory research code and robust implementation code.
 
 The default behavior in this repository is to preserve and extend the current implementation, not to redesign it.

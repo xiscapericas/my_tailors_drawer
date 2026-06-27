@@ -1,3 +1,6 @@
+> **Runbook (server commands)** — not the canonical experiment record.  
+> **Results & hypotheses:** [`experiments/registry.yaml`](../../experiments/registry.yaml) (GTVp Dice) and [`retrain_epoch_study.md`](../retrain_epoch_study/retrain_epoch_study.md).
+
 # RADCURE + HECKTOR retrain — Test3 (700 epochs)
 
 Test3 retrains **Dataset650** with **700 epochs** instead of the default **1000** (`nnUNetTrainerNoMirroring`). Everything else matches Test1/Test2: same combined dataset, same preprocessing, no mirroring.
@@ -104,7 +107,7 @@ export HECKTOR_EVAL_OUTPUT_DIR=/media/HDD_8TB/xisca/work/nnunet_radheck_test_3_r
 export CUDA_VISIBLE_DEVICES=1
 export nnUNet_compile=false
 
-python run_hecktor_test1_pipeline.py --predict-only
+python -m pipelines.hecktor.test_pipeline --predict-only
 ```
 
 Outputs (under `hecktor_validation/`, **not** in Dataset152):
@@ -121,7 +124,7 @@ Dataset152 `labelsTs_predicted` from earlier runs is left unchanged.
 
 ```bash
 # same env vars as above, including HECKTOR_EVAL_OUTPUT_DIR
-python run_hecktor_test1_pipeline.py --eval-only
+python -m pipelines.hecktor.test_pipeline --eval-only
 ```
 
 Adds metrics CSV under `hecktor_validation/logs/evaluation_d650.csv` and viz under `hecktor_validation/labelsTs_dice_and_viz/`.
@@ -162,7 +165,7 @@ nnUNet fold split during training (from your log: 288 train + 73 val per fold) c
 Optional leak / overlap audit:
 
 ```bash
-python research_notebooks/retrain_radheck/verify_radheck_no_leak.py \
+python -m pipelines.radheck.verify_radheck_no_leak \
   --combined-dataset "$DATASET" \
   --radcure-dataset /media/HDD_8TB/xisca/work/nnunet_retrain_radcure366/Dataset366_TotalSegmentator \
   --hecktor-test-dataset /media/HDD_8TB/xisca/work/nnunet_hecktor_test1/Dataset152_TotalSegmentator

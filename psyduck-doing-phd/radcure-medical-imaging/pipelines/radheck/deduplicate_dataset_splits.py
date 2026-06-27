@@ -6,29 +6,23 @@ Default priority when deduplicating: Ts > Tr > Va (test cases win).
 
 Examples:
     # Audit only
-    python research_notebooks/retrain_radheck/deduplicate_dataset_splits.py \\
+    python -m pipelines.radheck.deduplicate_dataset_splits \\
         --dataset /path/to/Dataset366_TotalSegmentator --audit-only
 
     # Fix RADCURE source, then rebuild Dataset650
-    python research_notebooks/retrain_radheck/deduplicate_dataset_splits.py \\
+    python -m pipelines.radheck.deduplicate_dataset_splits \\
         --dataset /path/to/Dataset366_TotalSegmentator
 
     # Fix combined dataset in place
-    python research_notebooks/retrain_radheck/deduplicate_dataset_splits.py \\
+    python -m pipelines.radheck.deduplicate_dataset_splits \\
         --dataset /path/to/Dataset650_TotalSegmentator
 """
 
 from __future__ import annotations
 
 import argparse
-import sys
-from pathlib import Path
 
-_SCRIPT_DIR = Path(__file__).resolve().parent
-if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))
-
-from nnunet_split_utils import (
+from pipelines.radheck.nnunet_split_utils import (
     audit_split_overlaps,
     deduplicate_dataset_splits,
     print_audit,

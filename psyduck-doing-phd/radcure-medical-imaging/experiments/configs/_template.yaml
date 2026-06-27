@@ -1,0 +1,77 @@
+# Experiment config template
+#
+# Naming (required — see experiments/README.md § Naming convention):
+#
+#   1. One-line rule before copying:
+#      "Test{N} changes ___ compared to {changed_from}; everything else is identical."
+#
+#   2. Save as:  configs/test{N}_{cohort}_{variable}.yaml
+#      cohort:    radcure | radheck
+#      variable:  the ONE thing that differs (e.g. 500epochs, cosine_lr)
+#
+#   3. Register in experiments/registry.yaml with matching id, name, hypothesis, changed_from.
+#
+#   4. Server path (local.yaml): RETRAIN_RADHECK_TEST{N} → .../nnunet_radheck_test_{N}_retrain
+#      Folder number must match experiment id (Test2 legacy path is an exception).
+#
+# Examples:
+#   test4_radheck_500epochs.yaml   — epochs 700→500 vs test3
+#   test4_radheck_cosine_lr.yaml   — LR schedule vs test3
+
+experiment:
+  id: testN
+  name: ""  # human title, e.g. "RADHECK combined — 500 epochs"
+  status: planned  # planned | running | completed | failed
+  hypothesis: ""
+  changed_from: test3  # previous experiment id — exactly one training variable should differ
+
+training:
+  needs_dataset_build: false
+  needs_plan_preprocess: true
+  reuse_preprocessed_from: null  # path key, e.g. retrain_radheck_test2
+
+  cohorts: [radcure]  # radcure only → [radcure]; combined → [radcure, hecktor]
+  dataset_id: 650
+  dataset_folder: ${RADHECK_DATASET}  # or ${RADCURE_DATASET_366} for radcure-only
+  nnunet_retrain_path: ${NNUNET_RETRAIN_PATH}  # set to ${RETRAIN_RADHECK_TESTN} in local.yaml
+  nnunet_preprocessed_path: null
+
+  trainer: nnUNetTrainerNoMirroring  # or nnUNetTrainer_{variable}_NoMirroring
+  configuration: 3d_fullres
+  fold: 0
+  epochs: 1000
+
+  env:
+    nnUNet_compile: "false"
+    CUDA_VISIBLE_DEVICES: "1"
+    NNUNET_DISABLE_TTA: "true"
+
+evaluation:
+  model_dataset_id: 650  # nnUNet model to load (366 for test1; 650 for test2+)
+  radcure:
+    dataset_folder: ${RADHECK_DATASET}  # imagesTs = RADCURE test
+    steps:
+      - predict  # train_nnunet.py --step evaluate includes predict
+      - evaluation_visualization
+    output_predictions: ${RADHECK_DATASET}/labelsTs_predicted
+    output_viz: ${RADHECK_DATASET}/labelsTs_dice_and_viz
+    logs: ${NNUNET_RETRAIN_PATH}/logs
+  hecktor:
+    dataset_folder: ${HECKTOR_TEST_DATASET}  # Dataset152
+    eval_output_dir: ${NNUNET_RETRAIN_PATH}/hecktor_validation
+    steps:
+      - predict  # --predict-only
+      - eval     # --eval-only if predictions exist
+    output_predictions: ${NNUNET_RETRAIN_PATH}/hecktor_validation/labelsTs_predicted
+    output_viz: ${NNUNET_RETRAIN_PATH}/hecktor_validation/labelsTs_dice_and_viz
+    logs: ${NNUNET_RETRAIN_PATH}/hecktor_validation/logs
+
+results:
+  primary_metric: GTVp Dice
+  radcure:
+    mean_dice: null
+    n_cases: 74
+  hecktor:
+    mean_dice: null
+    n_cases: 48
+  notes: ""
