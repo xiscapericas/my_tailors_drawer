@@ -41,12 +41,16 @@ python -m nnunet_training.install_trainer_variants
 
 All under **`work/retrain_test4`** (separate from Test3 weights).
 
-**Important:** Test4 has new labels (GTVp + GTVn). Do **not** set `NNUNET_PREPROCESSED_PATH`
-(Test3/Test1 reuse). If your `.env` sets it, unset before training:
+**Important:** Test4 has new labels (GTVp + GTVn). Do **not** reuse Test1/Test3 preprocess.
+
+If your `.env` still sets `NNUNET_PREPROCESSED_PATH` (common after Test3), shell `unset`
+is **not enough** — Python reloads it from `.env`. Use either:
 
 ```bash
-unset NNUNET_PREPROCESSED_PATH
+export NNUNET_USE_LOCAL_PREPROCESS=1
 ```
+
+or comment out `NNUNET_PREPROCESSED_PATH` in `.env`.
 
 ```bash
 export DATASET_FOLDER=${TEST4_WORK_ROOT}/Dataset650_TotalSegmentator
@@ -58,6 +62,7 @@ export NNUNET_TRAINER=nnUNetTrainer_700epochs_NoMirroring
 export NNUNET_CONFIGURATION=3d_fullres
 export NNUNET_FOLD=0
 export LOG_DIR=${NNUNET_RETRAIN_PATH}/logs
+export NNUNET_USE_LOCAL_PREPROCESS=1
 
 export nnUNet_compile=false
 export CUDA_VISIBLE_DEVICES=1
@@ -67,7 +72,7 @@ mkdir -p "$NNUNET_RETRAIN_PATH" "$LOG_DIR"
 # Sanity check — train must NOT point at test_1_retrain
 echo "DATASET_FOLDER=$DATASET_FOLDER"
 echo "NNUNET_RETRAIN_PATH=$NNUNET_RETRAIN_PATH"
-echo "NNUNET_PREPROCESSED_PATH=${NNUNET_PREPROCESSED_PATH:-<unset — correct for Test4>}"
+echo "NNUNET_USE_LOCAL_PREPROCESS=$NNUNET_USE_LOCAL_PREPROCESS"
 
 python train_nnunet.py --step prepare --link-raw
 python train_nnunet.py --step plan

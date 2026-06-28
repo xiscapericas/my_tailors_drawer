@@ -19,6 +19,10 @@ except ImportError:
     pass
 
 
+def _env_flag(name: str) -> bool:
+    return os.getenv(name, "").lower() in ("1", "true", "yes")
+
+
 class TrainingConfig:
     """Configuration class for nnUNet training."""
     
@@ -45,6 +49,7 @@ class TrainingConfig:
         self.trainer = os.getenv('NNUNET_TRAINER', 'nnUNetTrainerNoMirroring')
         # Optional: reuse preprocessed data from another retrain run (skip re-planning)
         self.preprocessed_path = os.getenv('NNUNET_PREPROCESSED_PATH')
+        self._resolve_preprocessed_path()
         self.fold = int(os.getenv('NNUNET_FOLD', '0'))
         self.num_processes = int(os.getenv('NNUNET_NUM_PROCESSES', '1'))
         
@@ -75,6 +80,39 @@ class TrainingConfig:
         
         # Load organ dictionary
         self.labels = self._load_organ_dictionary()
+
+    def _resolve_preprocessed_path(self) -> None:
+        """
+        Decide whether to reuse external preprocessed data.
+
+        ``unset NNUNET_PREPROCESSED_PATH`` in the shell is not enough when ``.env``
+        still defines it — ``load_dotenv()`` re-applies the value on import.
+        Set ``NNUNET_USE_LOCAL_PREPROCESS=1`` to force preprocess under
+        ``{NNUNET_RETRAIN_PATH}/nnUNet_preprocessed``.
+        """
+        local_preproc = os.path.join(self.main_retrain_path, "nnUNet_preprocessed")
+        if _env_flag("NNUNET_USE_LOCAL_PREPROCESS"):
+            if self.preprocessed_path:
+                print(
+                    "✓ NNUNET_USE_LOCAL_PREPROCESS=1 — ignoring NNUNET_PREPROCESSED_PATH "
+                    f"({self.preprocessed_path})"
+                )
+            self.preprocessed_path = None
+            return
+
+        if not self.preprocessed_path:
+            return
+
+        external = os.path.abspath(self.preprocessed_path)
+        local = os.path.abspath(local_preproc)
+        if external != local:
+            print(
+                "⚠️  NNUNET_PREPROCESSED_PATH points outside NNUNET_RETRAIN_PATH:\n"
+                f"     preprocessed: {external}\n"
+                f"     retrain root: {self.main_retrain_path}\n"
+                "   For a new label set (Test4), set NNUNET_USE_LOCAL_PREPROCESS=1 "
+                "or comment out NNUNET_PREPROCESSED_PATH in .env"
+            )
     
     def _detect_dataset_info(self):
         """Auto-detect dataset ID and name from folder path."""
