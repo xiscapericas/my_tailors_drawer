@@ -20,6 +20,7 @@ except ImportError:
 
 from nnunet_training.config import TrainingConfig
 from nnunet_training.install_trainer_variants import ensure_trainer_installed
+from nnunet_training.splits_utils import ensure_splits_final
 
 
 def add_nnunet_to_path(nnunet_path: str):
@@ -236,7 +237,8 @@ def verify_preprocessed_for_training(config: TrainingConfig):
     if not os.path.isfile(splits_path):
         raise FileNotFoundError(
             f"splits_final.json not found:\n  {splits_path}\n"
-            "Run: python train_nnunet.py --step plan"
+            "This should have been created automatically before training. "
+            "Re-run: python train_nnunet.py --step train"
         )
 
     with open(splits_path) as f:
@@ -296,6 +298,13 @@ def main_plan():
     
     # Plan and preprocess
     plan_and_preprocess(config)
+
+    print("\nEnsuring splits_final.json exists...")
+    ensure_splits_final(
+        config.dataset_folder,
+        os.environ["nnUNet_preprocessed"],
+        config.dataset_name,
+    )
     
     print("\n" + "=" * 70)
     print("Planning and preprocessing complete!")
@@ -321,6 +330,13 @@ def main_train():
     
     # Setup environment
     config.setup_nnunet_environment()
+
+    print("\nEnsuring splits_final.json exists...")
+    ensure_splits_final(
+        config.dataset_folder,
+        os.environ["nnUNet_preprocessed"],
+        config.dataset_name,
+    )
 
     print("\nVerifying preprocessed data before training...")
     verify_preprocessed_for_training(config)

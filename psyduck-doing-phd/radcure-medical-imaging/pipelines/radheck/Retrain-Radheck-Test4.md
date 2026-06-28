@@ -85,8 +85,14 @@ After `plan`, confirm preprocessed files exist, e.g.:
 ls ${NNUNET_RETRAIN_PATH}/nnUNet_preprocessed/Dataset650_TotalSegmentator/nnUNetPlans_3d_fullres/*.b2nd | wc -l
 ```
 
-Expect hundreds of `.b2nd` files (one per Tr+Va case). Training log should show
-`splits_final.json` under **retrain_test4**, not `nnunet_radheck_test_1_retrain`.
+Expect **466** (= 2 × 233 `imagesTr` cases). `splits_final.json` is created automatically
+at train time (or copied from Test3 if you set `NNUNET_SPLITS_REFERENCE`).
+
+Optional — reuse the same fold assignment as Test3:
+
+```bash
+export NNUNET_SPLITS_REFERENCE=/media/HDD_8TB/xisca/work/nnunet_radheck_test_1_retrain/nnUNet_preprocessed
+```
 
 Model output:
 
