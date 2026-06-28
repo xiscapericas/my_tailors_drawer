@@ -141,12 +141,34 @@ class NIfTIHandler:
         import SimpleITK as sitk
         
         output_path = os.path.join(output_folder, f'{case_id}.nii.gz')
+        if os.path.isfile(output_path):
+            print(f'Using existing NIfTI: {output_path}')
+            return output_path
         
-        # Read the DICOM series
         reader = sitk.ImageSeriesReader()
         series_ids = reader.GetGDCMSeriesIDs(dicom_folder_ct_path)
+        if not series_ids:
+            try:
+                entries = os.listdir(dicom_folder_ct_path)
+            except OSError as e:
+                entries = [f"(listdir failed: {e})"]
+            raise FileNotFoundError(
+                f"No DICOM CT series in {dicom_folder_ct_path}. "
+                f"Contents: {entries[:20]}{'...' if len(entries) > 20 else ''}. "
+                "Check that get_ct_and_mask_paths resolved the CT folder (not RTSTRUCT)."
+            )
+
+        # Prefer the series with the most slices (typical axial CT stack)
+        best_id = series_ids[0]
+        best_n = 0
+        for series_id in series_ids:
+            n = len(reader.GetGDCMSeriesFileNames(dicom_folder_ct_path, series_id))
+            if n > best_n:
+                best_n = n
+                best_id = series_id
+
         series_file_names = reader.GetGDCMSeriesFileNames(
-            dicom_folder_ct_path, series_ids[0]
+            dicom_folder_ct_path, best_id
         )
         reader.SetFileNames(series_file_names)
         image = reader.Execute()

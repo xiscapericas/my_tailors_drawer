@@ -55,34 +55,130 @@ class FileHandler:
         return os.path.join(base, entries[0]) + "/"
     
     @staticmethod
+    def _has_dcm_files(folder: str) -> bool:
+        return any(
+            f.lower().endswith(".dcm")
+            for f in os.listdir(folder)
+            if not f.startswith(".")
+        )
+
+    @staticmethod
+    def _first_dicom_modality(folder: str) -> Optional[str]:
+        """Read Modality from the first .dcm file in a folder."""
+        try:
+            import pydicom
+        except ImportError:
+            return None
+        for name in sorted(os.listdir(folder)):
+            if not name.lower().endswith(".dcm"):
+                continue
+            path = os.path.join(folder, name)
+            ds = pydicom.dcmread(path, stop_before_pixels=True, force=True)
+            mod = getattr(ds, "Modality", None)
+            return str(mod).upper() if mod else None
+        return None
+
+    @staticmethod
+    def _largest_ct_series_file_count(folder: str) -> int:
+        """Return slice count of the largest DICOM series in folder (0 if none)."""
+        try:
+            import SimpleITK as sitk
+        except ImportError:
+            return 0
+        reader = sitk.ImageSeriesReader()
+        try:
+            series_ids = reader.GetGDCMSeriesIDs(folder)
+        except Exception:
+            return 0
+        if not series_ids:
+            return 0
+        best = 0
+        for series_id in series_ids:
+            try:
+                n = len(reader.GetGDCMSeriesFileNames(folder, series_id))
+            except Exception:
+                continue
+            best = max(best, n)
+        return best
+
+    @staticmethod
     def get_ct_and_mask_paths(dicom_folder_path: str) -> Dict[str, str]:
         """
-        Get CT and mask folder paths from DICOM folder.
-        
-        Parameters
-        ----------
-        dicom_folder_path : str
-            Path to DICOM folder
-        
-        Returns
-        -------
-        Dict[str, str]
-            Dictionary with 'ct_path' and 'mask_path' keys
+        Get CT and RTSTRUCT folder paths from a RADCURE DICOM study folder.
+
+        Uses DICOM Modality and series size — not alphabetical order (CT vs RTSTRUCT
+        sort order was wrong and caused empty series_ids on convert).
         """
-        dicom_folders = sorted(
-            f for f in os.listdir(dicom_folder_path)
-            if not f.startswith('.')
+        root = dicom_folder_path.rstrip("/") + "/"
+        subdirs = sorted(
+            os.path.join(root, name)
+            for name in os.listdir(root)
+            if not name.startswith(".") and os.path.isdir(os.path.join(root, name))
         )
-        if len(dicom_folders) < 2:
+        if len(subdirs) < 2:
             raise ValueError(
-                f"Expected at least 2 subfolders in {dicom_folder_path}, "
-                f"found {dicom_folders}"
+                f"Expected at least 2 subfolders in {root}, "
+                f"found {[os.path.basename(d) for d in subdirs]}"
             )
-        
-        return {
-            "ct_path": os.path.join(dicom_folder_path, dicom_folders[1]) + "/",
-            "mask_path": os.path.join(dicom_folder_path, dicom_folders[0]) + "/",
-        }
+
+        ct_candidates: List[tuple] = []
+        rtstruct_candidates: List[str] = []
+
+        for folder in subdirs:
+            folder_slash = folder.rstrip("/") + "/"
+            modality = FileHandler._first_dicom_modality(folder)
+            series_slices = FileHandler._largest_ct_series_file_count(folder)
+            label = os.path.basename(folder.rstrip("/"))
+
+            if modality == "CT" or series_slices >= 2:
+                ct_candidates.append((series_slices, folder_slash, label, modality))
+            if modality == "RTSTRUCT" or (
+                modality not in ("CT",) and series_slices == 0 and FileHandler._has_dcm_files(folder)
+            ):
+                rtstruct_candidates.append(folder_slash)
+
+        ct_path = None
+        mask_path = None
+
+        if ct_candidates:
+            ct_candidates.sort(key=lambda x: x[0], reverse=True)
+            ct_path = ct_candidates[0][1]
+            print(
+                f"Detected CT folder: {ct_candidates[0][2]} "
+                f"(modality={ct_candidates[0][3]}, slices={ct_candidates[0][0]})"
+            )
+
+        if rtstruct_candidates:
+            mask_path = rtstruct_candidates[0]
+            print(f"Detected RTSTRUCT folder: {os.path.basename(mask_path.rstrip('/'))}")
+
+        # Two folders: if only one side detected, assign the other by exclusion
+        if len(subdirs) == 2:
+            a, b = (d.rstrip("/") + "/" for d in subdirs)
+            if ct_path and not mask_path:
+                mask_path = b if ct_path.rstrip("/") == a.rstrip("/") else a
+            elif mask_path and not ct_path:
+                ct_path = b if mask_path.rstrip("/") == a.rstrip("/") else a
+
+        if not ct_path or not mask_path:
+            # Legacy fallback (alphabetical) with explicit warning
+            names = sorted(
+                f for f in os.listdir(root) if not f.startswith(".") and os.path.isdir(os.path.join(root, f))
+            )
+            print(
+                "WARNING: Could not detect CT/RTSTRUCT by modality; "
+                f"falling back to sorted order {names} (mask=first, ct=second)."
+            )
+            mask_path = os.path.join(root, names[0]) + "/"
+            ct_path = os.path.join(root, names[1]) + "/"
+
+        if ct_path.rstrip("/") == mask_path.rstrip("/"):
+            raise ValueError(
+                f"CT and RTSTRUCT resolved to the same folder under {root}. "
+                f"Subfolders: {[os.path.basename(d) for d in subdirs]}"
+            )
+
+        return {"ct_path": ct_path, "mask_path": mask_path}
     
     @staticmethod
     def get_number_from_name(text: str) -> Optional[str]:

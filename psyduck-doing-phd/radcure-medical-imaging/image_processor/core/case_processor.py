@@ -334,6 +334,8 @@ class CaseProcessor:
             ct_mask_paths = self.file_handler.get_ct_and_mask_paths(dicom_folder_path)
             dicom_folder_ct_path = ct_mask_paths['ct_path']
             dicom_folder_mask_path = ct_mask_paths['mask_path']
+            print(f'  CT folder: {dicom_folder_ct_path}')
+            print(f'  RTSTRUCT folder: {dicom_folder_mask_path}')
             
             # Step 4: Convert to NIfTI
             print('Step 4: Converting to NIfTI')
