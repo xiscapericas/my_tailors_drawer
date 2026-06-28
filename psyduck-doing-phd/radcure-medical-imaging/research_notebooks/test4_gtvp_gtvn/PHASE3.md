@@ -31,6 +31,8 @@ export ORGAN_DICTIONARY_PATH=${TEST4_WORK_ROOT}/radcure_dictionary_test4.json
 export NNUNET_RETRAIN_PATH=${TEST4_WORK_ROOT}/nnunet_retrain
 export NNUNET_TRAINER=nnUNetTrainer_700epochs_NoMirroring
 
+unset NNUNET_PREPROCESSED_PATH   # required — do not reuse Test1/Test3 preprocess
+
 python -m nnunet_training.install_trainer_variants
 python train_nnunet.py --step prepare --link-raw
 python train_nnunet.py --step plan

@@ -41,6 +41,13 @@ python -m nnunet_training.install_trainer_variants
 
 All under **`work/retrain_test4`** (separate from Test3 weights).
 
+**Important:** Test4 has new labels (GTVp + GTVn). Do **not** set `NNUNET_PREPROCESSED_PATH`
+(Test3/Test1 reuse). If your `.env` sets it, unset before training:
+
+```bash
+unset NNUNET_PREPROCESSED_PATH
+```
+
 ```bash
 export DATASET_FOLDER=${TEST4_WORK_ROOT}/Dataset650_TotalSegmentator
 export ORGAN_DICTIONARY_PATH=${TEST4_WORK_ROOT}/radcure_dictionary_test4.json
@@ -57,10 +64,24 @@ export CUDA_VISIBLE_DEVICES=1
 
 mkdir -p "$NNUNET_RETRAIN_PATH" "$LOG_DIR"
 
+# Sanity check — train must NOT point at test_1_retrain
+echo "DATASET_FOLDER=$DATASET_FOLDER"
+echo "NNUNET_RETRAIN_PATH=$NNUNET_RETRAIN_PATH"
+echo "NNUNET_PREPROCESSED_PATH=${NNUNET_PREPROCESSED_PATH:-<unset — correct for Test4>}"
+
 python train_nnunet.py --step prepare --link-raw
 python train_nnunet.py --step plan
 python train_nnunet.py --step train
 ```
+
+After `plan`, confirm preprocessed files exist, e.g.:
+
+```bash
+ls ${NNUNET_RETRAIN_PATH}/nnUNet_preprocessed/Dataset650_TotalSegmentator/nnUNetPlans_3d_fullres/*.b2nd | wc -l
+```
+
+Expect hundreds of `.b2nd` files (one per Tr+Va case). Training log should show
+`splits_final.json` under **retrain_test4**, not `nnunet_radheck_test_1_retrain`.
 
 Model output:
 

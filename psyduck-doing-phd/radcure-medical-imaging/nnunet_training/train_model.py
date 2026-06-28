@@ -9,6 +9,7 @@ This module handles:
 import os
 import subprocess
 import sys
+import json
 
 # Try to load from .env file if python-dotenv is available
 try:
@@ -203,6 +204,76 @@ def verify_dataset_in_nnunet_raw(config: TrainingConfig):
     print(f"✓ Dataset verified in nnUNet_raw: {expected_path}")
 
 
+def verify_preprocessed_for_training(config: TrainingConfig):
+    """
+    Fail fast if preprocessed .b2nd files are missing for the training fold.
+
+    Common cause: NNUNET_PREPROCESSED_PATH still points at an older retrain run
+    (e.g. Test1/Test3) while DATASET_FOLDER holds a new dataset (Test4).
+    """
+    preproc_root = os.environ["nnUNet_preprocessed"]
+    dataset_preproc = os.path.join(preproc_root, config.dataset_name)
+    plans_dir = os.path.join(dataset_preproc, f"nnUNetPlans_{config.configuration}")
+    splits_path = os.path.join(dataset_preproc, "splits_final.json")
+
+    if config.preprocessed_path:
+        expected_local = os.path.join(config.main_retrain_path, "nnUNet_preprocessed")
+        if os.path.abspath(config.preprocessed_path) != os.path.abspath(expected_local):
+            print(
+                "⚠️  NNUNET_PREPROCESSED_PATH is set to an external folder:\n"
+                f"     {config.preprocessed_path}\n"
+                f"   NNUNET_RETRAIN_PATH: {config.main_retrain_path}\n"
+                "   Reusing old preprocess is OK only when labels are unchanged "
+                "(e.g. Test3 reusing Test2). For Test4, unset NNUNET_PREPROCESSED_PATH."
+            )
+
+    if not os.path.isdir(plans_dir):
+        raise FileNotFoundError(
+            f"Preprocessed plans folder not found:\n  {plans_dir}\n"
+            "Run: python train_nnunet.py --step plan"
+        )
+
+    if not os.path.isfile(splits_path):
+        raise FileNotFoundError(
+            f"splits_final.json not found:\n  {splits_path}\n"
+            "Run: python train_nnunet.py --step plan"
+        )
+
+    with open(splits_path) as f:
+        splits = json.load(f)
+
+    if config.fold >= len(splits):
+        raise ValueError(
+            f"Fold {config.fold} out of range; splits_final.json has {len(splits)} folds"
+        )
+
+    fold_cases = splits[config.fold]["train"] + splits[config.fold]["val"]
+    missing = [
+        case
+        for case in fold_cases
+        if not os.path.isfile(os.path.join(plans_dir, f"{case}.b2nd"))
+    ]
+    if missing:
+        sample = ", ".join(missing[:5])
+        extra = f" (+{len(missing) - 5} more)" if len(missing) > 5 else ""
+        raise FileNotFoundError(
+            f"{len(missing)} preprocessed case(s) missing under:\n  {plans_dir}\n"
+            f"  Examples: {sample}{extra}\n"
+            f"  nnUNet_preprocessed in use: {preproc_root}\n\n"
+            "Likely fix:\n"
+            "  1. unset NNUNET_PREPROCESSED_PATH\n"
+            "  2. export NNUNET_RETRAIN_PATH to this experiment's retrain folder\n"
+            "  3. python train_nnunet.py --step prepare --link-raw\n"
+            "  4. python train_nnunet.py --step plan\n"
+            "  5. python train_nnunet.py --step train"
+        )
+
+    print(
+        f"✓ Preprocessed data verified: {len(fold_cases)} cases for fold {config.fold} "
+        f"in {plans_dir}"
+    )
+
+
 def main_plan():
     """Main function for planning and preprocessing."""
     print("=" * 70)
@@ -249,6 +320,9 @@ def main_train():
     
     # Setup environment
     config.setup_nnunet_environment()
+
+    print("\nVerifying preprocessed data before training...")
+    verify_preprocessed_for_training(config)
     
     # Train model
     train_model(config)
