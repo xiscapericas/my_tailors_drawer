@@ -15,7 +15,7 @@ work/retrain_test4/                    ← TEST4_WORK_ROOT
 └── relabel_failed.txt
 ```
 
-**Phase 3** (later): build `Dataset650` here using the **same train/val/test case lists** as Test3.
+**Phase 3:** build `Dataset650` here using the **same train/val/test case lists** as Test3 — see [`PHASE3.md`](PHASE3.md).
 
 ## Run (server)
 

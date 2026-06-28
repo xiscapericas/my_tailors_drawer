@@ -4,7 +4,7 @@
 experiment:
   id: test4
   name: RADHECK combined — separate GTVp / GTVn
-  status: planned
+  status: running
   changed_from: test3
   hypothesis: >
     Keeping GTVp and GTVn as distinct nnUNet labels reduces false second-tumour
@@ -69,4 +69,4 @@ results:
     mean_dice_gtvp: null
     mean_dice_gtvn: null
     n_cases: 48
-  notes: "Phase 1 — validate preprocessing notebook before full reprocess."
+  notes: "Phase 3 — build Dataset650 + train 700 epochs. See research_notebooks/test4_gtvp_gtvn/PHASE3.md"

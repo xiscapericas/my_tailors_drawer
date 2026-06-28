@@ -1,1 +1,1 @@
-"""Test4 batch relabel — reuse TotalSegmentator, refresh GTVp/GTVn labels."""
+"""Test4 — batch relabel (Phase 2) and Dataset650 build (Phase 3)."""
