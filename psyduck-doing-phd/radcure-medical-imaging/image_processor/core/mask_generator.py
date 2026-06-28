@@ -4,6 +4,7 @@ import os
 import numpy as np
 import nibabel as nib
 from typing import List, Dict, Tuple, Optional
+from image_processor.conventions import TUMOR_LABEL_MODE_MERGED, TUMOR_LABEL_MODE_SEPARATE
 from image_processor.utils.organ_dictionary import OrganDictionary
 from image_processor.utils.image_processing import ImageProcessor
 from image_processor.io.nifti_handler import NIfTIHandler
@@ -188,48 +189,60 @@ class MaskGenerator:
         tumor_mask_nifti_path: str,
         slices_to_use: List[int],
         combined_mask_array: List[np.ndarray],
-        tumor_source_labels: Optional[List[int]] = None
+        tumor_source_labels: Optional[List[int]] = None,
+        tumor_label_mode: str = TUMOR_LABEL_MODE_MERGED,
+        tumor_source_label_mapping: Optional[Dict[int, str]] = None,
     ) -> List[np.ndarray]:
         """
         Update combined mask with tumor annotations from NIfTI mask.
-        
-        Source mask can have multiple labels (e.g. 1=GTVp, 2=GTVn); all values
-        in tumor_source_labels are merged into a single tumor index (GTVp).
-        
+
+        Modes
+        -----
+        merged (default, Test1–3):
+            Source labels in ``tumor_source_labels`` map to a single GTVp index.
+        separate (Test4+):
+            Each source label maps to its own organ (1→GTVp, 2→GTVn).
+
         Parameters
         ----------
         tumor_mask_nifti_path : str
-            Path to tumor mask NIfTI file (aligned with CT for RADCURE)
+            Path to tumor mask NIfTI (0=bg; 1=GTVp; 2=GTVn when separate)
         slices_to_use : List[int]
-            List of slice indices
+            Slice indices
         combined_mask_array : List[np.ndarray]
             Combined mask array to update
         tumor_source_labels : List[int], optional
-            Mask values to treat as tumor (e.g. [1] for RADCURE, [1, 2] for HECKTOR).
-            If None, defaults to [1].
-        
+            Used in merged mode only (e.g. [1] RADCURE, [1, 2] HECKTOR)
+        tumor_label_mode : str
+            ``merged`` or ``separate``
+        tumor_source_label_mapping : Dict[int, str], optional
+            Source value → organ name for separate mode (default {1: GTVp, 2: GTVn})
+
         Returns
         -------
         List[np.ndarray]
-            Updated combined mask array with tumor
+            Updated combined mask array
         """
-        # Ensure tumor index exists
-        tumor_value = self.organ_dictionary.add_tumor_index()
-        source_labels = tumor_source_labels if tumor_source_labels is not None else [1]
-
-        # Load tumor mask from NIfTI
         tumor_mask_vol = NIfTIHandler.load_nii_mask(tumor_mask_nifti_path)
-
-        # Get tumor masks for slices of interest
         tumor_masks = tumor_mask_vol[:, :, slices_to_use]
 
-        print(f'Using index {tumor_value} for tumor (source labels: {source_labels})')
+        if tumor_label_mode == TUMOR_LABEL_MODE_SEPARATE:
+            mapping = tumor_source_label_mapping or {1: "GTVp", 2: "GTVn"}
+            target_indices = self.organ_dictionary.add_tumor_indices(separate_gtvp_gtvn=True)
+            for source_label, organ_name in mapping.items():
+                target_value = target_indices[organ_name]
+                print(f"Using index {target_value} for {organ_name} (source label {source_label})")
+                for ind in range(len(combined_mask_array)):
+                    tumor_slice = tumor_masks[:, :, ind]
+                    combined_mask_array[ind][tumor_slice == source_label] = target_value
+            return combined_mask_array
+
+        tumor_value = self.organ_dictionary.add_tumor_index()
+        source_labels = tumor_source_labels if tumor_source_labels is not None else [1]
+        print(f"Using index {tumor_value} for tumor (merged source labels: {source_labels})")
         for ind in range(len(combined_mask_array)):
-            combined_mask = combined_mask_array[ind]
             tumor_slice = tumor_masks[:, :, ind]
-            tumor_any = np.isin(tumor_slice, source_labels)
-            combined_mask[tumor_any] = tumor_value
-            combined_mask_array[ind] = combined_mask
+            combined_mask_array[ind][np.isin(tumor_slice, source_labels)] = tumor_value
 
         return combined_mask_array
     

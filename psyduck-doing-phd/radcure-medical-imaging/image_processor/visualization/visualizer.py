@@ -14,6 +14,39 @@ from image_processor.io.nifti_handler import NIfTIHandler
 
 class MedicalImageVisualizer:
     """Visualization utilities for medical images."""
+
+    @staticmethod
+    def _apply_tumor_highlight_colors(
+        colors: np.ndarray,
+        organ_dict: Dict[str, int],
+        colormap_size: int,
+    ) -> None:
+        """Force GTVp=red and GTVn=magenta in a label colormap (in-place)."""
+        gtvp_index = organ_dict.get("GTVp")
+        gtvn_index = organ_dict.get("GTVn")
+        reserved = {i for i in (gtvp_index, gtvn_index) if i is not None}
+
+        if gtvp_index is not None and gtvp_index < colormap_size:
+            colors[gtvp_index, :] = [1.0, 0.0, 0.0, 1.0]
+            print(f"✓ Set GTVp (index {gtvp_index}) to RED")
+
+        if gtvn_index is not None and gtvn_index < colormap_size:
+            colors[gtvn_index, :] = [1.0, 0.0, 1.0, 1.0]
+            print(f"✓ Set GTVn (index {gtvn_index}) to MAGENTA")
+
+        red_threshold = 0.7
+        replaced_count = 0
+        for i in range(1, colormap_size):
+            if i in reserved:
+                continue
+            if colors[i, 0] > red_threshold:
+                alt_cmap = plt.cm.get_cmap("Set3", colormap_size)
+                alt_colors = alt_cmap(np.arange(colormap_size))
+                colors[i, :3] = alt_colors[i, :3]
+                colors[i, 3] = 1.0
+                replaced_count += 1
+        if replaced_count > 0:
+            print(f"✓ Replaced {replaced_count} red-like colors to avoid conflict with tumors")
     
     @staticmethod
     def make_label_cmap(mask: np.ndarray) -> tuple:
@@ -191,6 +224,7 @@ class MedicalImageVisualizer:
         organ_dict = None
         index_to_organ = None
         gtvp_index = None
+        gtvn_index = None
         use_legend = False
         
         if organ_dictionary_path and os.path.exists(organ_dictionary_path):
@@ -200,9 +234,12 @@ class MedicalImageVisualizer:
                 # Invert dictionary: {organ_name: index} -> {index: organ_name}
                 index_to_organ = {v: k for k, v in organ_dict.items()}
                 gtvp_index = organ_dict.get('GTVp', None)
+                gtvn_index = organ_dict.get('GTVn', None)
                 use_legend = True
                 if gtvp_index is not None:
                     print(f"✓ Found GTVp at index {gtvp_index}")
+                if gtvn_index is not None:
+                    print(f"✓ Found GTVn at index {gtvn_index}")
             except Exception as e:
                 print(f"⚠️ Warning: Could not load organ dictionary: {e}")
                 use_legend = False
@@ -212,31 +249,17 @@ class MedicalImageVisualizer:
         if max_label <= 0:
             max_label = 1
         
-        # Create colormap with GTVp in red if dictionary is available
-        if use_legend and gtvp_index is not None:
-            # Ensure colormap has enough entries for all labels including GTVp
-            colormap_size = max(max_label + 1, gtvp_index + 1)
+        # Create colormap with tumor highlights if dictionary is available
+        if use_legend and (gtvp_index is not None or gtvn_index is not None):
+            colormap_size = max(max_label + 1, gtvp_index + 1 if gtvp_index else 0)
+            if gtvn_index is not None:
+                colormap_size = max(colormap_size, gtvn_index + 1)
             base_cmap = plt.cm.get_cmap("tab20", colormap_size)
             colors = base_cmap(np.arange(colormap_size))
             colors[0, :] = [0.0, 0.0, 0.0, 0.0]  # transparent background
-            
-            # Set GTVp to pure red
-            if gtvp_index < colormap_size:
-                colors[gtvp_index, :] = [1.0, 0.0, 0.0, 1.0]
-                print(f"✓ Set GTVp (index {gtvp_index}) to RED color")
-                
-                # Ensure no other organ uses red
-                red_threshold = 0.7
-                replaced_count = 0
-                for i in range(1, colormap_size):
-                    if i != gtvp_index and colors[i, 0] > red_threshold:
-                        alt_cmap = plt.cm.get_cmap("Set3", colormap_size)
-                        alt_colors = alt_cmap(np.arange(colormap_size))
-                        colors[i, :3] = alt_colors[i, :3]
-                        colors[i, 3] = 1.0
-                        replaced_count += 1
-                if replaced_count > 0:
-                    print(f"✓ Replaced {replaced_count} red-like colors to avoid conflict with GTVp")
+            MedicalImageVisualizer._apply_tumor_highlight_colors(
+                colors, organ_dict, colormap_size
+            )
             
             cmap_mask = ListedColormap(colors)
             boundaries = np.arange(-0.5, colormap_size + 0.5, 1)
@@ -329,9 +352,10 @@ class MedicalImageVisualizer:
                             # Fallback: get from colormap
                             color = cmap_mask(norm_mask(label_idx))
                         
-                        # Ensure GTVp is always red in legend (double-check)
                         if organ_name == 'GTVp' and gtvp_index is not None and label_idx == gtvp_index:
-                            color = [1.0, 0.0, 0.0, 1.0]  # Pure red
+                            color = [1.0, 0.0, 0.0, 1.0]
+                        elif organ_name == 'GTVn' and gtvn_index is not None and label_idx == gtvn_index:
+                            color = [1.0, 0.0, 1.0, 1.0]
                         
                         # Convert color to tuple for comparison (avoid duplicates)
                         color_tuple = tuple(color[:3])  # RGB only, ignore alpha

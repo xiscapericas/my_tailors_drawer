@@ -32,6 +32,7 @@ Central registry and configs for RADCURE / HECKTOR (RADHECK) segmentation experi
 | test1 | RADCURE only (366) | 1000 | 0.377 | 0.330 |
 | test2 | RADCURE + HECKTOR (650) | 1000 | 0.383 | 0.486 |
 | test3 | RADCURE + HECKTOR (650) | 700 | 0.383 | 0.545 |
+| test4 | RADCURE + HECKTOR (650), **separate GTVp/GTVn** | 700 (planned) | — | — |
 
 Details and narrative: [`research_notebooks/retrain_epoch_study/retrain_epoch_study.md`](../research_notebooks/retrain_epoch_study/retrain_epoch_study.md).
 

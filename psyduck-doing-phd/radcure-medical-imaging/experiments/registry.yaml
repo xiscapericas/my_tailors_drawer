@@ -148,18 +148,55 @@ experiments:
       HECKTOR eval outputs can go to {retrain_radheck_test3}/hecktor_validation.
       Source: pipelines/radheck/Retrain-Radheck-Test3.md
 
+  test4:
+    id: test4
+    name: RADHECK combined — separate GTVp / GTVn
+    status: planned
+    config_file: configs/test4_radheck_separate_gtvp_gtvn.yaml
+    changed_from: test3
+    hypothesis: >
+      Separate GTVp and GTVn labels reduce spurious second-tumour predictions
+      and allow per-target Dice (GTVp vs GTVn) vs merging both into one GTVp.
+    training:
+      cohorts: [radcure, hecktor]
+      dataset_id: 650
+      tumor_label_mode: separate
+      trainer: nnUNetTrainer_700epochs_NoMirroring
+      epochs: 700
+      configuration: 3d_fullres
+      build_script: pipelines/radheck/build_nnunet_dataset.py
+      preprocessing_notebook: research_notebooks/test4_gtvp_gtvn/test4_preprocessing_preview.ipynb
+    evaluation:
+      model_dataset_id: 650
+      metrics: [GTVp Dice, GTVn Dice]
+      hecktor_eval_output_subdir: hecktor_validation
+    results:
+      primary_metric: GTVp Dice
+      secondary_metrics: [GTVn Dice]
+      radcure:
+        mean_dice_gtvp: null
+        mean_dice_gtvn: null
+        n_cases: 74
+      hecktor:
+        mean_dice_gtvp: null
+        mean_dice_gtvn: null
+        n_cases: 48
+    notes: |
+      Phase 1 (in progress): preprocessing with tumor_label_mode=separate.
+      Phase 2: reprocess all cases + same train/val/test splits as Test3.
+      Phase 3: train 700 epochs, evaluate GTVp and GTVn Dice separately.
+
 # ---------------------------------------------------------------------------
 # Next experiment — naming rules (see experiments/README.md § Naming convention)
 # ---------------------------------------------------------------------------
 #
-# Before Test4+:
+# Before Test5+:
 #   1. "Test{N} changes ___ compared to {changed_from}; everything else is identical."
-#   2. configs/test{N}_{cohort}_{variable}.yaml  (cohort: radcure | radheck)
+#   2. configs/test{N}_{cohort}_{variable}.yaml
 #   3. local.yaml: RETRAIN_RADHECK_TEST{N} → .../nnunet_radheck_test_{N}_retrain
-#   4. Add block below; set status planned → running → completed; fill results
 #
 # next:
-#   id: test4
-#   config_file: configs/test4_radheck_500epochs.yaml
-#   changed_from: test3
+#   id: test5
+#   config_file: configs/test5_radheck_....yaml
+#   changed_from: test4
 #   hypothesis: ""

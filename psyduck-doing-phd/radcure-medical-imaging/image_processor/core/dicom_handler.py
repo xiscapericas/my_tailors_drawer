@@ -54,6 +54,40 @@ class DICOMHandler:
         return contours_dict
     
     @staticmethod
+    def load_labeled_tumor_volume(ct_folder_path: str, mask_folder_path: str) -> np.ndarray:
+        """
+        Build multi-label tumor volume from RTSTRUCT: 1=GTVp, 2=GTVn.
+
+        Missing structures are skipped (e.g. RADCURE cases without GTVn).
+        """
+        files = [f for f in os.listdir(mask_folder_path) if not f.startswith(".")]
+        if not files:
+            raise FileNotFoundError(f"No RTSTRUCT file found in {mask_folder_path}")
+        tumor_mask_path = os.path.join(mask_folder_path, files[0])
+
+        rtstruct = RTStructBuilder.create_from(ct_folder_path, tumor_mask_path)
+        roi_names = rtstruct.get_roi_names()
+        print("Available structures:", roi_names)
+
+        labeled = None
+        for structure_name, source_label in (("GTVp", 1), ("GTVn", 2)):
+            if structure_name not in roi_names:
+                print(f"  {structure_name} not in RTSTRUCT — skipping")
+                continue
+            mask = rtstruct.get_roi_mask_by_name(structure_name).astype(np.int32)
+            if labeled is None:
+                labeled = np.zeros(mask.shape, dtype=np.int32)
+            labeled[mask > 0] = source_label
+            print(f"  Loaded {structure_name} → source label {source_label}")
+
+        if labeled is None or np.sum(labeled > 0) == 0:
+            raise ValueError(
+                "No GTVp/GTVn structures found in RTSTRUCT. "
+                f"Available: {roi_names}"
+            )
+        return labeled
+
+    @staticmethod
     def load_tumor_mask(ct_folder_path: str, mask_folder_path: str) -> np.ndarray:
         """
         Load tumor mask (GTVp) from RTSTRUCT folder.

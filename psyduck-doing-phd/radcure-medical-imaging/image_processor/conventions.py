@@ -1,11 +1,15 @@
 """Dataset conventions for RADCURE and HECKTOR."""
 
 import os
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 # Convention names
 RADCURE = "radcure"
 HECKTOR = "hecktor"
+
+# Tumor label modes (Test1–3 used merged; Test4+ can use separate)
+TUMOR_LABEL_MODE_MERGED = "merged"
+TUMOR_LABEL_MODE_SEPARATE = "separate"
 
 
 def get_tumor_source_labels(convention: str) -> List[int]:
@@ -18,6 +22,18 @@ def get_tumor_source_labels(convention: str) -> List[int]:
     if convention == HECKTOR:
         return [1, 2]
     return [1]
+
+
+def get_tumor_source_label_mapping(convention: str) -> Dict[int, str]:
+    """
+    Map source tumor mask values to organ names (separate-tumor mode).
+
+    Source encoding (RADCURE RTSTRUCT → aligned NIfTI, or HECKTOR mask file):
+      1 = GTVp, 2 = GTVn
+    """
+    if convention not in (RADCURE, HECKTOR):
+        raise ValueError(f"Unknown convention: {convention}")
+    return {1: "GTVp", 2: "GTVn"}
 
 
 def get_nnunet_case_number(case_id: str, convention: str) -> str:

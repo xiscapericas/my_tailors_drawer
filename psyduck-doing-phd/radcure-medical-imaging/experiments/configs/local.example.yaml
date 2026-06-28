@@ -13,6 +13,7 @@ RETRAIN_RADCURE_366: /path/to/work/nnunet_retrain_radcure366
 RETRAIN_RADHECK_TEST2: /path/to/work/nnunet_radheck_test_1_retrain  # legacy folder name (test2)
 RETRAIN_RADHECK_TEST3: /path/to/work/nnunet_radheck_test_3_retrain
 # RETRAIN_RADHECK_TEST4: /path/to/work/nnunet_radheck_test_4_retrain
+# RADHECK_DATASET_TEST4: /path/to/work/nnunet_radheck_test_4/Dataset650_TotalSegmentator
 
 ORGAN_DICTIONARY_PATH: /path/to/radcure_dictionary.json
 NNUNET_PATH: /path/to/nnUNet

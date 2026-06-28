@@ -80,6 +80,25 @@ class OrganDictionary:
             Index assigned to tumor
         """
         return self.add_organ('GTVp')
+
+    def add_tumor_indices(self, separate_gtvp_gtvn: bool = False) -> Dict[str, int]:
+        """
+        Register tumor label(s) in the dictionary.
+
+        Parameters
+        ----------
+        separate_gtvp_gtvn : bool
+            If True, add both GTVp and GTVn. If False, add GTVp only (merged mode).
+
+        Returns
+        -------
+        Dict[str, int]
+            ``{"GTVp": idx, ...}`` with optional ``GTVn``
+        """
+        indices = {"GTVp": self.add_organ("GTVp")}
+        if separate_gtvp_gtvn:
+            indices["GTVn"] = self.add_organ("GTVn")
+        return indices
     
     def save(self, path: Optional[str] = None) -> None:
         """

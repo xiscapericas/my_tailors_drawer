@@ -24,6 +24,7 @@ Exploratory work: notebooks, analysis reports, and paper drafts. Pipeline orches
 
 | Path | Role |
 |------|------|
+| [`test4_gtvp_gtvn/`](../research_notebooks/test4_gtvp_gtvn/) | **Test4 Phase 1** — separate GTVp/GTVn preprocessing preview |
 | [`pipelines/radheck/`](../pipelines/radheck/) | RADHECK dataset build, leak checks, server runbooks |
 | [`experiments/`](../experiments/) | Experiment registry and YAML configs (canonical Test1–3 record) |
 | [`docs/PROJECT_LAYOUT.md`](../docs/PROJECT_LAYOUT.md) | Full repo map |

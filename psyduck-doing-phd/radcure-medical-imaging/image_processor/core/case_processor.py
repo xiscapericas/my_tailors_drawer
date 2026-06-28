@@ -9,7 +9,10 @@ from typing import Dict, List, Optional, Tuple
 from image_processor.conventions import (
     RADCURE,
     HECKTOR,
+    TUMOR_LABEL_MODE_MERGED,
+    TUMOR_LABEL_MODE_SEPARATE,
     get_tumor_source_labels,
+    get_tumor_source_label_mapping,
     get_hecktor_paths,
     get_nnunet_case_number,
 )
@@ -44,6 +47,7 @@ class CaseProcessor:
         hecktor_cleanup_intermediates: bool = False,
         segmentator_nr_thr_resamp: Optional[int] = None,
         segmentator_nr_thr_saving: Optional[int] = None,
+        tumor_label_mode: str = TUMOR_LABEL_MODE_MERGED,
     ):
         """
         Initialize case processor.
@@ -79,6 +83,8 @@ class CaseProcessor:
             successful case to save disk and peak RAM references.
         segmentator_nr_thr_resamp, segmentator_nr_thr_saving : int, optional
             Passed to TotalSegmentator (lower values reduce memory; None keeps library defaults).
+        tumor_label_mode : str
+            ``merged`` (Test1–3: GTVp+GTVn → single GTVp label) or ``separate`` (Test4+: distinct GTVp/GTVn).
         """
         self.main_path = main_path
         self.main_path_retrain = os.path.join(main_path, 'TotalSegmentatorRetrain')
@@ -87,6 +93,12 @@ class CaseProcessor:
         self.convention = convention
         self.cases_root = cases_root
         self.hecktor_cleanup_intermediates = bool(hecktor_cleanup_intermediates)
+        if tumor_label_mode not in (TUMOR_LABEL_MODE_MERGED, TUMOR_LABEL_MODE_SEPARATE):
+            raise ValueError(
+                f"tumor_label_mode must be '{TUMOR_LABEL_MODE_MERGED}' or "
+                f"'{TUMOR_LABEL_MODE_SEPARATE}', got {tumor_label_mode!r}"
+            )
+        self.tumor_label_mode = tumor_label_mode
         
         # Initialize components
         self.aws_handler = AWSHandler(
@@ -237,11 +249,15 @@ class CaseProcessor:
             combined_mask_array, _ = self.mask_generator.generate_combined_mask(
                 slices_to_use, background_array_int, total_segmentator_output.rstrip('/')
             )
-            # Add tumor (merge GTVp + GTVn into one label)
-            print('Step 4: Adding tumor to mask')
+            # Add tumor label(s)
+            print(f'Step 4: Adding tumor to mask (mode={self.tumor_label_mode})')
             combined_mask_array_tumor = self.mask_generator.update_combined_mask_with_tumor(
-                path_mask, slices_to_use, combined_mask_array,
-                tumor_source_labels=get_tumor_source_labels(HECKTOR)
+                path_mask,
+                slices_to_use,
+                combined_mask_array,
+                tumor_source_labels=get_tumor_source_labels(HECKTOR),
+                tumor_label_mode=self.tumor_label_mode,
+                tumor_source_label_mapping=get_tumor_source_label_mapping(HECKTOR),
             )
             # Generate CT images
             print('Step 5: Generating CT images')
@@ -328,11 +344,17 @@ class CaseProcessor:
             )
             
             # Step 5: Load tumor mask and get slices
-            print('Step 5: Loading tumor mask and getting slices')
-            contours = self.dicom_handler.load_tumor_mask(
-                dicom_folder_ct_path,
-                dicom_folder_mask_path
-            )
+            print(f'Step 5: Loading tumor mask and getting slices (mode={self.tumor_label_mode})')
+            if self.tumor_label_mode == TUMOR_LABEL_MODE_SEPARATE:
+                contours = self.dicom_handler.load_labeled_tumor_volume(
+                    dicom_folder_ct_path,
+                    dicom_folder_mask_path,
+                )
+            else:
+                contours = self.dicom_handler.load_tumor_mask(
+                    dicom_folder_ct_path,
+                    dicom_folder_mask_path,
+                )
             non_zero_tumor_mask = ImageProcessor.get_non_zero_slices(contours)
             
             # Expand slices
@@ -394,12 +416,14 @@ class CaseProcessor:
             )
             
             # Step 9: Add tumor to mask
-            print('Step 9: Adding tumor to mask')
+            print(f'Step 9: Adding tumor to mask (mode={self.tumor_label_mode})')
             combined_mask_array_tumor = self.mask_generator.update_combined_mask_with_tumor(
                 mask_nifti_path,
                 non_zero_tumor_mask_expanded,
                 combined_mask_array,
-                tumor_source_labels=get_tumor_source_labels(RADCURE)
+                tumor_source_labels=get_tumor_source_labels(RADCURE),
+                tumor_label_mode=self.tumor_label_mode,
+                tumor_source_label_mapping=get_tumor_source_label_mapping(RADCURE),
             )
             
             # Step 10: Generate CT images

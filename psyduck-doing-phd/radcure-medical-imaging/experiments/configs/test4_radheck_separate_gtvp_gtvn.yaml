@@ -1,0 +1,72 @@
+# Test4 — separate GTVp and GTVn labels (Dataset650, 700 epochs planned)
+# Phase 1: preprocessing validation only (see research_notebooks/test4_gtvp_gtvn/)
+
+experiment:
+  id: test4
+  name: RADHECK combined — separate GTVp / GTVn
+  status: planned
+  changed_from: test3
+  hypothesis: >
+    Keeping GTVp and GTVn as distinct nnUNet labels reduces false second-tumour
+    predictions and improves per-target Dice vs merging both into one GTVp label.
+
+training:
+  needs_dataset_build: true
+  needs_plan_preprocess: true
+  reuse_preprocessed_from: null
+
+  cohorts: [radcure, hecktor]
+  dataset_id: 650
+  dataset_folder: ${RADHECK_DATASET_TEST4}
+  nnunet_retrain_path: ${RETRAIN_RADHECK_TEST4}
+  nnunet_preprocessed_path: null
+
+  tumor_label_mode: separate  # merged (Test1–3) | separate (Test4+)
+
+  trainer: nnUNetTrainer_700epochs_NoMirroring
+  configuration: 3d_fullres
+  fold: 0
+  epochs: 700
+  custom_trainer_install: python -m nnunet_training.install_trainer_variants
+
+  env:
+    nnUNet_compile: "false"
+    CUDA_VISIBLE_DEVICES: "1"
+    NNUNET_DISABLE_TTA: "true"
+
+evaluation:
+  model_dataset_id: 650
+  metrics:
+    - GTVp Dice
+    - GTVn Dice
+  radcure:
+    dataset_folder: ${RADHECK_DATASET_TEST4}
+    steps:
+      - predict
+      - evaluation_visualization
+    output_predictions: ${RADHECK_DATASET_TEST4}/labelsTs_predicted
+    output_viz: ${RADHECK_DATASET_TEST4}/labelsTs_dice_and_viz
+    logs: ${RETRAIN_RADHECK_TEST4}/logs
+  hecktor:
+    dataset_folder: ${HECKTOR_TEST_DATASET}
+    eval_output_dir: ${RETRAIN_RADHECK_TEST4}/hecktor_validation
+    steps:
+      - predict
+      - eval
+    output_predictions: ${RETRAIN_RADHECK_TEST4}/hecktor_validation/labelsTs_predicted
+    output_viz: ${RETRAIN_RADHECK_TEST4}/hecktor_validation/labelsTs_dice_and_viz
+    logs: ${RETRAIN_RADHECK_TEST4}/hecktor_validation/logs
+
+results:
+  primary_metric: GTVp Dice
+  secondary_metrics:
+    - GTVn Dice
+  radcure:
+    mean_dice_gtvp: null
+    mean_dice_gtvn: null
+    n_cases: 74
+  hecktor:
+    mean_dice_gtvp: null
+    mean_dice_gtvn: null
+    n_cases: 48
+  notes: "Phase 1 — validate preprocessing notebook before full reprocess."
