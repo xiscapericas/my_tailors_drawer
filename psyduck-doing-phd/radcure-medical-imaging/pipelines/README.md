@@ -6,6 +6,7 @@ Orchestration scripts for multi-step server workflows. Library code stays in `im
 |---------|---------|
 | [`hecktor/`](hecktor/) | HECKTOR test download, process, predict, evaluate |
 | [`radheck/`](radheck/) | Combined RADCURE + HECKTOR dataset build, leak checks, server runbooks |
+| [`test4/`](test4/) | Test4 relabel batch (reuse TotalSegmentator, separate GTVp/GTVn) |
 
 Run from **repository root** (after `pip install -e .`):
 

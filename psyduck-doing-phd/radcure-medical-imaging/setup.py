@@ -16,6 +16,7 @@ setup(
         'console_scripts': [
             'run-hecktor-test=pipelines.hecktor.test_pipeline:main',
             'build-radheck-dataset=pipelines.radheck.build_nnunet_dataset:main',
+            'relabel-test4-tumors=pipelines.test4.relabel_tumor_batch:main',
         ],
     },
     install_requires=[

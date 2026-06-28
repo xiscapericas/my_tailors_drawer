@@ -172,6 +172,220 @@ class CaseProcessor:
             except OSError:
                 pass
 
+    @staticmethod
+    def _require_total_segmentator_output(case_folder: str) -> str:
+        ts_out = os.path.join(case_folder, "total_segmentator_output")
+        if not os.path.isdir(ts_out):
+            raise FileNotFoundError(
+                f"Missing total_segmentator_output under {case_folder}. "
+                "Run full preprocessing first or pick a case with existing TotalSegmentator outputs."
+            )
+        return ts_out.rstrip("/") + "/"
+
+    def _save_nnunet_output_pair(
+        self,
+        case_id: str,
+        slices_to_use: List[int],
+        combined_mask_array_tumor: List[np.ndarray],
+        ct_nifti_path: str,
+        dest_case_folder: str,
+        write_pdf: bool = False,
+    ) -> Dict[str, str]:
+        """Write output/image and output/labels under dest_case_folder."""
+        ct_img_array = self.mask_generator.generate_ct_images(ct_nifti_path, slices_to_use)
+        results_path = os.path.join(dest_case_folder, "output")
+        results_path_images = os.path.join(results_path, "image")
+        results_path_labels = os.path.join(results_path, "labels")
+        os.makedirs(results_path_images, exist_ok=True)
+        os.makedirs(results_path_labels, exist_ok=True)
+
+        nn_num = get_nnunet_case_number(case_id, self.convention)
+        image_path = self.nifti_handler.save_as_nii(
+            ct_img_array,
+            results_path_images,
+            case_id,
+            dtype_needed=False,
+            nnunet_case_number=nn_num,
+        )
+        label_path = self.nifti_handler.save_as_nii(
+            combined_mask_array_tumor,
+            results_path_labels,
+            case_id,
+            dtype_needed=True,
+            nnunet_case_number=nn_num,
+        )
+        pdf_path = ""
+        if write_pdf:
+            pdf_path = os.path.join(results_path, f"{case_id}.pdf")
+            self.visualizer.show_two_niis_side_by_side(
+                image_path,
+                label_path,
+                save_pdf_path=pdf_path,
+                show=False,
+                organ_dictionary_path=self.organ_dictionary.dictionary_path,
+            )
+        return {
+            "image_path": image_path,
+            "label_path": label_path,
+            "pdf_path": pdf_path,
+            "status": "success",
+        }
+
+    def relabel_from_existing_total_segmentator(
+        self,
+        case_id: str,
+        source_case_folder: str,
+        dest_case_folder: str,
+        write_pdf: bool = False,
+    ) -> Dict[str, str]:
+        """
+        Rebuild combined labels using existing TotalSegmentator organ masks.
+
+        Reads ``total_segmentator_output/`` from source_case_folder, applies current
+        ``tumor_label_mode``, writes nnUNet ``output/image`` + ``output/labels`` to
+        dest_case_folder (organs unchanged; GTVp/GTVn labels refreshed).
+        """
+        if self.convention == HECKTOR:
+            return self._relabel_hecktor_from_source(
+                case_id, source_case_folder, dest_case_folder, write_pdf=write_pdf
+            )
+        return self._relabel_radcure_from_source(
+            case_id, source_case_folder, dest_case_folder, write_pdf=write_pdf
+        )
+
+    def _relabel_radcure_from_source(
+        self,
+        case_id: str,
+        source_case_folder: str,
+        dest_case_folder: str,
+        write_pdf: bool = False,
+    ) -> Dict[str, str]:
+        print(f"Relabel RADCURE {case_id} (reuse TS from source → dest labels)")
+        source_case_folder = source_case_folder.rstrip("/")
+        os.makedirs(dest_case_folder, exist_ok=True)
+
+        total_segmentator_output = self._require_total_segmentator_output(source_case_folder)
+        nifti_output_path = os.path.join(source_case_folder, f"{case_id}.nii.gz")
+        if not os.path.isfile(nifti_output_path):
+            raise FileNotFoundError(f"CT NIfTI not found: {nifti_output_path}")
+
+        dicom_folder_path = self.file_handler.get_dicom_path(source_case_folder, case_id)
+        ct_mask_paths = self.file_handler.get_ct_and_mask_paths(dicom_folder_path)
+        dicom_folder_ct_path = ct_mask_paths["ct_path"]
+        dicom_folder_mask_path = ct_mask_paths["mask_path"]
+
+        if self.tumor_label_mode == TUMOR_LABEL_MODE_SEPARATE:
+            contours = self.dicom_handler.load_labeled_tumor_volume(
+                dicom_folder_ct_path, dicom_folder_mask_path
+            )
+        else:
+            contours = self.dicom_handler.load_tumor_mask(
+                dicom_folder_ct_path, dicom_folder_mask_path
+            )
+
+        non_zero_tumor_mask = ImageProcessor.get_non_zero_slices(contours)
+        start_slices_mask = max(min(non_zero_tumor_mask) - self.slice_expansion, 0)
+        end_slices_mask = max(non_zero_tumor_mask) + self.slice_expansion
+        slices_to_use = list(range(start_slices_mask, end_slices_mask + 1))
+
+        if self.reverse_slices:
+            slices_to_use = [
+                contours.shape[2] - idx for idx in slices_to_use
+            ][::-1]
+
+        mask_nifti_path = os.path.join(dest_case_folder, f"{case_id}_tumor_mask_aligned.nii.gz")
+        self.nifti_handler.save_and_align_mask_with_ct(
+            contours, nifti_output_path, mask_nifti_path
+        )
+
+        background_array_int = self.mask_generator.generate_background_array(
+            slices_to_use, nifti_output_path
+        )
+        combined_mask_array, _ = self.mask_generator.generate_combined_mask(
+            slices_to_use, background_array_int, total_segmentator_output.rstrip("/")
+        )
+        combined_mask_array_tumor = self.mask_generator.update_combined_mask_with_tumor(
+            mask_nifti_path,
+            slices_to_use,
+            combined_mask_array,
+            tumor_source_labels=get_tumor_source_labels(RADCURE),
+            tumor_label_mode=self.tumor_label_mode,
+            tumor_source_label_mapping=get_tumor_source_label_mapping(RADCURE),
+        )
+
+        result = self._save_nnunet_output_pair(
+            case_id,
+            slices_to_use,
+            combined_mask_array_tumor,
+            nifti_output_path,
+            dest_case_folder,
+            write_pdf=write_pdf,
+        )
+        if self.organ_dictionary.dictionary_path:
+            self.organ_dictionary.save()
+        gc.collect()
+        self._maybe_empty_cuda_cache()
+        return result
+
+    def _relabel_hecktor_from_source(
+        self,
+        case_id: str,
+        source_case_folder: str,
+        dest_case_folder: str,
+        write_pdf: bool = False,
+    ) -> Dict[str, str]:
+        print(f"Relabel HECKTOR {case_id} (reuse TS from source → dest labels)")
+        source_case_folder = source_case_folder.rstrip("/")
+        os.makedirs(dest_case_folder, exist_ok=True)
+
+        total_segmentator_output = self._require_total_segmentator_output(source_case_folder)
+        paths = get_hecktor_paths(source_case_folder, case_id)
+        path_ct = paths["path_ct"]
+        path_mask = paths["path_mask"]
+        if not os.path.isfile(path_ct):
+            raise FileNotFoundError(f"CT not found: {path_ct}")
+        if not os.path.isfile(path_mask):
+            raise FileNotFoundError(f"Mask not found: {path_mask}")
+
+        mask_vol = nib.load(path_mask).get_fdata().astype(np.int32)
+        non_zero = ImageProcessor.get_non_zero_slices(mask_vol)
+        z = mask_vol.shape[2]
+        if len(non_zero) == 0:
+            slices_to_use = list(range(z))
+        else:
+            start = max(int(min(non_zero)) - self.slice_expansion, 0)
+            end = min(int(max(non_zero)) + self.slice_expansion, z - 1)
+            slices_to_use = list(range(start, end + 1))
+
+        background_array_int = self.mask_generator.generate_background_array(
+            slices_to_use, path_ct
+        )
+        combined_mask_array, _ = self.mask_generator.generate_combined_mask(
+            slices_to_use, background_array_int, total_segmentator_output.rstrip("/")
+        )
+        combined_mask_array_tumor = self.mask_generator.update_combined_mask_with_tumor(
+            path_mask,
+            slices_to_use,
+            combined_mask_array,
+            tumor_source_labels=get_tumor_source_labels(HECKTOR),
+            tumor_label_mode=self.tumor_label_mode,
+            tumor_source_label_mapping=get_tumor_source_label_mapping(HECKTOR),
+        )
+
+        result = self._save_nnunet_output_pair(
+            case_id,
+            slices_to_use,
+            combined_mask_array_tumor,
+            path_ct,
+            dest_case_folder,
+            write_pdf=write_pdf,
+        )
+        if self.organ_dictionary.dictionary_path:
+            self.organ_dictionary.save()
+        gc.collect()
+        self._maybe_empty_cuda_cache()
+        return result
+
     def process_case(self, case_id: str) -> Dict[str, str]:
         """
         Process a single case through the entire pipeline.

@@ -182,9 +182,10 @@ experiments:
         mean_dice_gtvn: null
         n_cases: 48
     notes: |
-      Phase 1 (in progress): preprocessing with tumor_label_mode=separate.
-      Phase 2: reprocess all cases + same train/val/test splits as Test3.
-      Phase 3: train 700 epochs, evaluate GTVp and GTVn Dice separately.
+      Phase 1 (done): preprocessing with tumor_label_mode=separate — preview notebook.
+      Phase 2: python -m pipelines.test4.relabel_tumor_batch → work/retrain_test4
+        (reuse total_segmentator_output; new GTVp/GTVn labels).
+      Phase 3: build Dataset650 + train 700 epochs; same Tr/Va/Ts splits as Test3.
 
 # ---------------------------------------------------------------------------
 # Next experiment — naming rules (see experiments/README.md § Naming convention)
