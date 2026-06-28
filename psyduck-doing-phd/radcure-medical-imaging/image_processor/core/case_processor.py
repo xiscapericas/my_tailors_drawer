@@ -317,7 +317,7 @@ class CaseProcessor:
             print('Step 1: Downloading zip')
             if not os.path.exists(zip_path):
                 self.aws_handler.download_case(
-                    radcure_case_id,
+                    case_id,
                     self.main_path_retrain
                 )
             
