@@ -1,6 +1,8 @@
-# Test4 Phase 1 — GTVp / GTVn preprocessing preview
+# Test4 — separate GTVp / GTVn labels
 
-Validate **separate tumor labels** (`tumor_label_mode="separate"`) on one RADCURE and one HECKTOR case before full reprocessing (Phase 2).
+**Results:** [`TEST4_RESULTS.md`](TEST4_RESULTS.md)
+
+Phase 1 — validate **separate tumor labels** (`tumor_label_mode="separate"`) on one RADCURE and one HECKTOR case before full reprocessing (Phase 2).
 
 **Test4 changes tumor label handling compared to test3; everything else stays identical for later phases.**
 

@@ -151,7 +151,7 @@ experiments:
   test4:
     id: test4
     name: RADHECK combined — separate GTVp / GTVn
-    status: running
+    status: completed
     config_file: configs/test4_radheck_separate_gtvp_gtvn.yaml
     changed_from: test3
     hypothesis: >
@@ -175,19 +175,19 @@ experiments:
       primary_metric: GTVp Dice
       secondary_metrics: [GTVn Dice]
       radcure:
-        mean_dice_gtvp: null
-        mean_dice_gtvn: null
+        mean_dice_gtvp: 0.58
+        mean_dice_gtvn: 0.60
         n_cases: 74
       hecktor:
-        mean_dice_gtvp: null
+        mean_dice_gtvp: null  # see TEST4_RESULTS.md + spreadsheet (worse than Test 2/3)
         mean_dice_gtvn: null
         n_cases: 48
     notes: |
       Phase 1 (done): preprocessing with tumor_label_mode=separate — preview notebook.
       Phase 2 (done): python -m pipelines.test4.relabel_tumor_batch → work/retrain_test4
         (reuse total_segmentator_output; new GTVp/GTVn labels).
-      Phase 3 (running): python -m pipelines.test4.build_dataset650 → Dataset650 + train 700 epochs;
-        same Tr/Va/Ts splits as Test3. Runbook: pipelines/radheck/Retrain-Radheck-Test4.md
+      Phase 3 (done): build Dataset650 + train 700 epochs; same Tr/Va/Ts splits as Test3.
+      Results write-up: research_notebooks/test4_gtvp_gtvn/TEST4_RESULTS.md
 
 # ---------------------------------------------------------------------------
 # Next experiment — naming rules (see experiments/README.md § Naming convention)
