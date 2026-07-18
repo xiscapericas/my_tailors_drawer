@@ -131,17 +131,24 @@ class ImageProcessor:
         img: np.ndarray,
         *,
         sigma: float = 1.0,
-        min_area: int = 2000,
-        thresh_method: str = "otsu",
+        min_area: int = 1500,
+        max_fill: float = 0.55,
+        fov_floor: float = 0.02,
     ) -> np.ndarray:
         """
-        Simple patient-vs-background mask from intensity (no left-crop / watershed).
+        Patient-vs-background mask for H&N / shoulder axial CT.
 
         Same return convention as ``head_mask_from_array``:
         True = background, False = anatomical (patient).
 
-        Intended as a more stable baseline for H&N axial CT when the edge-based
-        ``head_mask_from_array`` fails (empty slices, left-half crop, etc.).
+        Design goals
+        ------------
+        - Body is usually **centered**; corners outside the reconstruction FOV
+          are black and must not drive the threshold (naive Otsu on the full
+          image often labels the entire FOV circle as "patient").
+        - Works for **head and shoulders** (no left-crop, no head watershed).
+        - Always leaves background: if fill is too high, raise the tissue
+          threshold and prefer the connected component nearest the center.
         """
         if not isinstance(img, np.ndarray):
             raise TypeError("img must be a numpy.ndarray")
@@ -152,27 +159,75 @@ class ImageProcessor:
         p1, p99 = np.percentile(im, (1, 99))
         denom = (p99 - p1) if (p99 - p1) > 1e-6 else 1e-6
         im = np.clip((im - p1) / denom, 0.0, 1.0)
-
         g = gaussian_filter(im, sigma=sigma)
-        if thresh_method == "otsu":
-            t = filters.threshold_otsu(g)
-        else:
-            t = float(np.percentile(g, 40))
-        patient = g > t
+
+        h, w = g.shape
+        cy, cx = (h - 1) / 2.0, (w - 1) / 2.0
+
+        # 1) Reconstruction FOV = non-black interior (exclude corner void)
+        fov = g > fov_floor
+        fov = morphology.remove_small_objects(fov, min_size=min_area)
+        if int(fov.sum()) < min_area:
+            return np.ones((h, w), dtype=bool)
+
+        fov_labels = measure.label(fov)
+        if fov_labels.max() > 0:
+            props = measure.regionprops(fov_labels)
+            fov = fov_labels == max(props, key=lambda r: r.area).label
+
+        fov_vals = g[fov]
+
+        # 2) Tissue vs air *inside* FOV (not FOV vs corners)
+        t = float(filters.threshold_otsu(fov_vals))
+        patient = fov & (g > t)
+
+        # If almost the whole FOV is "tissue", threshold was too low → bump
+        fill_in_fov = float(patient.sum()) / float(max(int(fov.sum()), 1))
+        fill_img = float(patient.mean())
+        if fill_in_fov > 0.80 or fill_img > max_fill:
+            t = max(t, float(np.percentile(fov_vals, 60)))
+            patient = fov & (g > t)
 
         patient = binary_fill_holes(patient)
         patient = morphology.remove_small_objects(patient, min_size=min_area)
         patient = morphology.binary_closing(patient, morphology.disk(5))
         patient = binary_fill_holes(patient)
+        patient = patient & fov
 
+        # 3) Prefer a large component near the image center (body is centered)
         labels = measure.label(patient)
-        if labels.max() > 0:
-            props = measure.regionprops(labels)
-            largest = max(props, key=lambda r: r.area).label
-            patient = labels == largest
-            patient = binary_fill_holes(patient)
-        else:
-            patient = np.zeros_like(patient, dtype=bool)
+        if labels.max() == 0:
+            return np.ones((h, w), dtype=bool)
+
+        props = [r for r in measure.regionprops(labels) if r.area >= min_area]
+        if not props:
+            props = list(measure.regionprops(labels))
+
+        def _center_score(r):
+            ry, rx = r.centroid
+            dist2 = (ry - cy) ** 2 + (rx - cx) ** 2
+            return dist2 / (1.0 + r.area)  # smaller is better
+
+        best = min(props, key=_center_score)
+        patient = labels == best.label
+        patient = binary_fill_holes(patient)
+
+        # Final guard: never allow near-full-image anatomy
+        if float(patient.mean()) > max_fill:
+            # Erode until under cap or empty
+            eroded = patient.copy()
+            for _ in range(8):
+                if float(eroded.mean()) <= max_fill:
+                    break
+                eroded = morphology.binary_erosion(eroded, morphology.disk(3))
+            if int(eroded.sum()) >= min_area:
+                patient = binary_fill_holes(eroded)
+            else:
+                # Keep only central core of current mask
+                yy, xx = np.ogrid[:h, :w]
+                core = ((yy - cy) ** 2 + (xx - cx) ** 2) <= (0.35 * min(h, w)) ** 2
+                patient = patient & core
+                patient = binary_fill_holes(patient)
 
         return ~patient
 
