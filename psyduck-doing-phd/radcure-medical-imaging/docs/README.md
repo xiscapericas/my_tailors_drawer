@@ -45,6 +45,7 @@ Connected map: install, pipeline scripts, experiment registry, nnUNet reference,
 | Start Test4 | [experiments/README.md § Naming](../experiments/README.md#naming-convention) + [`configs/_template.yaml`](../experiments/configs/_template.yaml) |
 | Train / evaluate nnUNet | [nnunet_training/README.md](../nnunet_training/README.md) |
 | Write the paper | [retrain_epoch_study.md](../research_notebooks/retrain_epoch_study/retrain_epoch_study.md) |
+| Resume preprocess audit (Step C next) | [FINDINGS.md](../research_notebooks/preprocessing_pipeline_review/FINDINGS.md) |
 
 ---
 
