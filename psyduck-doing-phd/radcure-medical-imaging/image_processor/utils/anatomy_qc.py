@@ -33,25 +33,20 @@ def score_human_anatomy(
     *,
     min_gtvp_voxels: int = 20,
     weights: Optional[Dict[str, float]] = None,
+    fill_low: float = 0.075,
+    fill_high: float = 0.55,
+    fill_soft: float = 0.02,
+    hard_fail_fill_below: float = 0.065,
 ) -> Dict[str, Any]:
     """
     Score likelihood that a volume crop is usable human H&N anatomy.
 
-    Parameters
-    ----------
-    ct, tumor
-        3D arrays (H, W, Z), tumor labels 1=GTVp, 2=GTVn.
-    slices
-        Z indices to score (default: all).
-    min_gtvp_voxels
-        Soft floor for primary tumor presence.
-    weights
-        Optional override for component weights (must sum ~1).
+    Empirically (audit set): non-human FOVs had mean_patient_fill ≈ 0.04–0.06
+    while usable cases were ≥ ≈ 0.07. Tumor voxels alone are a weak signal
+    (labels can exist on non-anatomy), so fill / coherence dominate.
 
-    Returns
-    -------
-    dict
-        ``score`` in [0, 1], ``components``, ``metrics``, ``pass`` helper fields.
+    Hard fail: if ``mean_patient_fill < hard_fail_fill_below``, score is capped
+    and ``hard_fail`` is set so thresholding can discard regardless of tumor.
     """
     if slices is None:
         slices = list(range(ct.shape[2]))
@@ -62,6 +57,7 @@ def score_human_anatomy(
             "components": {},
             "metrics": {"error": "no_slices"},
             "reasons": ["no_slices"],
+            "hard_fail": True,
         }
 
     ct_c = ct[:, :, slices]
@@ -71,7 +67,7 @@ def score_human_anatomy(
     gtvn = int(np.sum(tu_c == 2))
     tumor_any = int(np.sum(tu_c > 0))
 
-    # --- component: tumor presence (prefer GTVp; GTVn-only is weaker) ---
+    # Tumor presence — useful but must not dominate (non-anatomy can still have labels)
     if gtvp >= min_gtvp_voxels:
         tumor_score = 1.0
     elif gtvp > 0:
@@ -81,16 +77,12 @@ def score_human_anatomy(
     else:
         tumor_score = 0.0
 
-    # --- component: intensity dynamic range on crop ---
     p1, p50, p99 = np.percentile(ct_c.astype(np.float64), (1, 50, 99))
     dyn = float(p99 - p1)
-    # Flat / empty volumes score low; typical CT crops have dyn >> 0
     intensity_score = _band_score(dyn, low=50.0, high=1e6, soft=50.0)
     if dyn < 1e-3:
         intensity_score = 0.0
 
-    # --- component: patient fill via existing head/body heuristic ---
-    # Sample up to 5 slices (ends + mid) to keep QC cheap
     sample_idx = sorted(
         {
             slices[0],
@@ -100,57 +92,83 @@ def score_human_anatomy(
             slices[-1],
         }
     )
+
     fill_fracs: List[float] = []
     largest_cc_fracs: List[float] = []
+    tumor_in_patient = 0
+    tumor_total = 0
+
     for z in sample_idx:
-        # head_mask_from_array returns True=background
         bg = ImageProcessor.head_mask_from_array(ct[:, :, z])
         patient = ~bg
-        fill = float(np.mean(patient))
-        fill_fracs.append(fill)
-        # coherence: largest CC / patient pixels (if any)
+        fill_fracs.append(float(np.mean(patient)))
+
         labels = measure.label(patient.astype(np.uint8))
         if labels.max() == 0:
             largest_cc_fracs.append(0.0)
         else:
             sizes = np.bincount(labels.ravel())
             sizes[0] = 0
-            largest_cc_fracs.append(float(sizes.max()) / max(patient.sum(), 1))
+            largest_cc_fracs.append(float(sizes.max()) / max(int(patient.sum()), 1))
+
+        m = tumor[:, :, z] > 0
+        tumor_total += int(m.sum())
+        tumor_in_patient += int(np.sum(m & patient))
 
     mean_fill = float(np.mean(fill_fracs)) if fill_fracs else 0.0
     mean_cc = float(np.mean(largest_cc_fracs)) if largest_cc_fracs else 0.0
-    # H&N axial: patient often ~10–55% of FOV; near 0 or ~1 is suspicious
-    fill_score = _band_score(mean_fill, low=0.08, high=0.60, soft=0.08)
-    coherence_score = _band_score(mean_cc, low=0.55, high=1.0, soft=0.25)
+    tumor_inside_frac = (
+        float(tumor_in_patient) / float(tumor_total) if tumor_total > 0 else 0.0
+    )
 
-    # --- component: enough axial extent ---
+    # Stricter fill band (audit: bad ~0.04–0.06, ok ≥~0.07)
+    fill_score = _band_score(mean_fill, low=fill_low, high=fill_high, soft=fill_soft)
+    coherence_score = _band_score(mean_cc, low=0.55, high=1.0, soft=0.25)
+    tumor_inside_score = (
+        _band_score(tumor_inside_frac, low=0.70, high=1.0, soft=0.25)
+        if tumor_total > 0
+        else 0.0
+    )
+
     n_slices = len(slices)
     extent_score = _band_score(float(n_slices), low=8.0, high=200.0, soft=6.0)
 
     components = {
         "tumor": tumor_score,
+        "tumor_inside_patient": tumor_inside_score,
         "intensity": intensity_score,
         "patient_fill": fill_score,
         "body_coherence": coherence_score,
         "slice_extent": extent_score,
     }
+    # Fill/coherence dominate: tumor labels alone do not prove human FOV
     w = weights or {
-        "tumor": 0.30,
-        "intensity": 0.15,
-        "patient_fill": 0.25,
-        "body_coherence": 0.20,
+        "tumor": 0.12,
+        "tumor_inside_patient": 0.18,
+        "intensity": 0.10,
+        "patient_fill": 0.35,
+        "body_coherence": 0.15,
         "slice_extent": 0.10,
     }
     wsum = sum(w.get(k, 0.0) for k in components) or 1.0
     score = float(sum(components[k] * w.get(k, 0.0) for k in components) / wsum)
 
+    hard_fail = bool(mean_fill < hard_fail_fill_below)
     reasons: List[str] = []
+    if hard_fail:
+        reasons.append(
+            f"hard_fail_low_patient_fill={mean_fill:.3f}<{hard_fail_fill_below}"
+        )
+        score = min(score, 0.35)
+
     if tumor_score < 0.5:
         reasons.append("weak_or_missing_tumor")
-    if fill_score < 0.5:
+    if fill_score < 0.5 and not hard_fail:
         reasons.append(f"abnormal_patient_fill={mean_fill:.3f}")
     if coherence_score < 0.5:
         reasons.append(f"fragmented_body_mask_cc={mean_cc:.3f}")
+    if tumor_inside_score < 0.5 and tumor_total > 0:
+        reasons.append(f"tumor_outside_patient={tumor_inside_frac:.3f}")
     if intensity_score < 0.5:
         reasons.append(f"flat_intensity_dyn={dyn:.3f}")
     if extent_score < 0.5:
@@ -158,6 +176,7 @@ def score_human_anatomy(
 
     return {
         "score": score,
+        "hard_fail": hard_fail,
         "components": components,
         "metrics": {
             "gtvp_voxels": gtvp,
@@ -170,7 +189,9 @@ def score_human_anatomy(
             "ct_dynamic_range": dyn,
             "mean_patient_fill": mean_fill,
             "mean_largest_cc_frac": mean_cc,
+            "tumor_inside_patient_frac": tumor_inside_frac,
             "sample_z": sample_idx,
+            "hard_fail_fill_below": hard_fail_fill_below,
         },
         "reasons": reasons,
     }
@@ -178,10 +199,16 @@ def score_human_anatomy(
 
 def apply_anatomy_threshold(
     score_result: Dict[str, Any],
-    threshold: float = 0.55,
+    threshold: float = 0.70,
 ) -> Tuple[bool, Dict[str, Any]]:
-    """Return (keep, record). keep=True if score >= threshold."""
-    keep = float(score_result.get("score", 0.0)) >= float(threshold)
+    """
+    Return (keep, record).
+
+    Discard if ``hard_fail`` or ``score < threshold``.
+    """
+    hard_fail = bool(score_result.get("hard_fail", False))
+    score = float(score_result.get("score", 0.0))
+    keep = (not hard_fail) and (score >= float(threshold))
     record = {
         **score_result,
         "threshold": float(threshold),
@@ -223,10 +250,12 @@ def write_discard_summary_csv(discard_records: List[Dict[str, Any]], csv_path: s
         "convention",
         "score",
         "threshold",
+        "hard_fail",
         "reasons",
         "gtvp_voxels",
         "gtvn_voxels",
         "mean_patient_fill",
+        "tumor_inside_patient_frac",
         "ct_dynamic_range",
     ]
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
@@ -240,10 +269,12 @@ def write_discard_summary_csv(discard_records: List[Dict[str, Any]], csv_path: s
                     "convention": r.get("convention", ""),
                     "score": r.get("score", ""),
                     "threshold": r.get("threshold", ""),
+                    "hard_fail": r.get("hard_fail", ""),
                     "reasons": ";".join(r.get("reasons") or []),
                     "gtvp_voxels": m.get("gtvp_voxels", ""),
                     "gtvn_voxels": m.get("gtvn_voxels", ""),
                     "mean_patient_fill": m.get("mean_patient_fill", ""),
+                    "tumor_inside_patient_frac": m.get("tumor_inside_patient_frac", ""),
                     "ct_dynamic_range": m.get("ct_dynamic_range", ""),
                 }
             )
