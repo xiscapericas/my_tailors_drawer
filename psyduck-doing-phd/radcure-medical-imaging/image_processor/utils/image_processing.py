@@ -1,7 +1,12 @@
 """Image processing utilities for background and anatomical region detection."""
 
 import numpy as np
-from scipy.ndimage import gaussian_filter, binary_fill_holes, distance_transform_edt
+from scipy.ndimage import (
+    gaussian_filter,
+    binary_fill_holes,
+    binary_closing as nd_binary_closing,
+    distance_transform_edt,
+)
 from skimage import filters, morphology, measure, segmentation
 from typing import Optional
 
@@ -134,6 +139,7 @@ class ImageProcessor:
         min_area: int = 1500,
         max_fill: float = 0.55,
         fov_floor: float = 0.02,
+        enforce_symmetry: bool = True,
     ) -> np.ndarray:
         """
         Patient-vs-background mask for H&N / shoulder axial CT.
@@ -149,6 +155,8 @@ class ImageProcessor:
         - Works for **head and shoulders** (no left-crop, no head watershed).
         - Always leaves background: if fill is too high, raise the tissue
           threshold and prefer the connected component nearest the center.
+        - Optional **sagittal symmetry**: fill contralateral holes when the
+          mirrored side is tissue-like (human L/R similarity).
         """
         if not isinstance(img, np.ndarray):
             raise TypeError("img must be a numpy.ndarray")
@@ -179,15 +187,15 @@ class ImageProcessor:
 
         # 2) Tissue vs air *inside* FOV (not FOV vs corners)
         t = float(filters.threshold_otsu(fov_vals))
-        patient = fov & (g > t)
+        tissue = fov & (g > t)
 
-        # If almost the whole FOV is "tissue", threshold was too low → bump
-        fill_in_fov = float(patient.sum()) / float(max(int(fov.sum()), 1))
-        fill_img = float(patient.mean())
+        fill_in_fov = float(tissue.sum()) / float(max(int(fov.sum()), 1))
+        fill_img = float(tissue.mean())
         if fill_in_fov > 0.80 or fill_img > max_fill:
             t = max(t, float(np.percentile(fov_vals, 60)))
-            patient = fov & (g > t)
+            tissue = fov & (g > t)
 
+        patient = tissue.copy()
         patient = binary_fill_holes(patient)
         patient = morphology.remove_small_objects(patient, min_size=min_area)
         patient = morphology.binary_closing(patient, morphology.disk(5))
@@ -206,15 +214,20 @@ class ImageProcessor:
         def _center_score(r):
             ry, rx = r.centroid
             dist2 = (ry - cy) ** 2 + (rx - cx) ** 2
-            return dist2 / (1.0 + r.area)  # smaller is better
+            return dist2 / (1.0 + r.area)
 
         best = min(props, key=_center_score)
         patient = labels == best.label
         patient = binary_fill_holes(patient)
 
+        # 4) Sagittal symmetry: fill contralateral gaps only where tissue exists
+        if enforce_symmetry:
+            patient = ImageProcessor._enforce_sagittal_symmetry(
+                patient, tissue_candidate=tissue, fov=fov, min_area=min_area
+            )
+
         # Final guard: never allow near-full-image anatomy
         if float(patient.mean()) > max_fill:
-            # Erode until under cap or empty
             eroded = patient.copy()
             for _ in range(8):
                 if float(eroded.mean()) <= max_fill:
@@ -223,13 +236,163 @@ class ImageProcessor:
             if int(eroded.sum()) >= min_area:
                 patient = binary_fill_holes(eroded)
             else:
-                # Keep only central core of current mask
                 yy, xx = np.ogrid[:h, :w]
                 core = ((yy - cy) ** 2 + (xx - cx) ** 2) <= (0.35 * min(h, w)) ** 2
                 patient = patient & core
                 patient = binary_fill_holes(patient)
 
         return ~patient
+
+    @staticmethod
+    def _enforce_sagittal_symmetry(
+        patient: np.ndarray,
+        *,
+        tissue_candidate: np.ndarray,
+        fov: np.ndarray,
+        min_area: int = 1500,
+    ) -> np.ndarray:
+        """
+        Encourage left/right similarity about the mid-sagittal (vertical) axis.
+
+        Adds mirrored patient voxels only where intensity already looks like
+        tissue inside the FOV (avoids painting air / table on the other side).
+        """
+        mirrored = np.fliplr(patient)
+        # Fill holes that exist on the contralateral side if tissue supports it
+        fill = mirrored & tissue_candidate & fov & (~patient)
+        out = patient | fill
+        out = binary_fill_holes(out)
+        out = morphology.remove_small_objects(out, min_size=min_area)
+        out = morphology.binary_closing(out, morphology.disk(3))
+        out = binary_fill_holes(out)
+        out = out & fov
+
+        # Keep centered component after symmetry fill
+        h, w = out.shape
+        cy, cx = (h - 1) / 2.0, (w - 1) / 2.0
+        labels = measure.label(out)
+        if labels.max() == 0:
+            return patient
+        props = list(measure.regionprops(labels))
+        best = min(
+            props,
+            key=lambda r: ((r.centroid[0] - cy) ** 2 + (r.centroid[1] - cx) ** 2)
+            / (1.0 + r.area),
+        )
+        out = labels == best.label
+        return binary_fill_holes(out)
+
+    @staticmethod
+    def enforce_anatomical_continuity(
+        background_masks: list,
+        *,
+        min_area: int = 1500,
+        z_close: int = 3,
+    ) -> list:
+        """
+        Fill isolated empty / tiny anatomical slices using Z-neighbors.
+
+        Parameters
+        ----------
+        background_masks
+            List of 2D arrays with production convention: 0=background, 1=anatomical
+            (or bool True=background from ``body_mask_from_intensity``).
+        min_area
+            Below this, a slice is treated as missing and filled from neighbors.
+        z_close
+            Odd window length for binary closing along Z (e.g. 3 → gap of 1).
+
+        Returns
+        -------
+        list
+            Same length/type convention as input (0/1 int masks).
+        """
+        if not background_masks:
+            return []
+
+        # Convert to patient bool volume (Z, H, W)
+        patients = []
+        for m in background_masks:
+            m = np.asarray(m)
+            if m.dtype == bool:
+                # True = background
+                patients.append(~m)
+            else:
+                patients.append(m == 1)
+
+        vol = np.stack(patients, axis=0).astype(bool)
+        z, h, w = vol.shape
+
+        # Mark weak slices
+        areas = vol.reshape(z, -1).sum(axis=1)
+        weak = areas < min_area
+
+        # Fill weak slices from immediate neighbors (before closing)
+        for i in range(z):
+            if not weak[i]:
+                continue
+            neigh = []
+            if i > 0 and areas[i - 1] >= min_area:
+                neigh.append(vol[i - 1])
+            if i + 1 < z and areas[i + 1] >= min_area:
+                neigh.append(vol[i + 1])
+            if not neigh:
+                continue
+            merged = np.zeros((h, w), dtype=bool)
+            for n in neigh:
+                merged |= n
+            # Soft intersection if both neighbors exist (more stable)
+            if len(neigh) == 2:
+                inter = neigh[0] & neigh[1]
+                if int(inter.sum()) >= min_area // 2:
+                    merged = inter
+            vol[i] = binary_fill_holes(merged)
+
+        # Small 3D closing along Z to bridge residual 1-slice gaps
+        if z_close >= 3 and z >= 3:
+            kz = z_close if z_close % 2 == 1 else z_close + 1
+            struct = np.zeros((kz, 3, 3), dtype=bool)
+            struct[:, 1, 1] = True
+            struct[kz // 2, :, :] = True
+            vol = nd_binary_closing(vol, structure=struct)
+            for i in range(z):
+                vol[i] = binary_fill_holes(vol[i])
+                vol[i] = morphology.remove_small_objects(vol[i], min_size=min_area)
+
+        return [np.where(vol[i], 1, 0).astype(np.int32) for i in range(z)]
+
+    @staticmethod
+    def anatomical_region_masks_from_slices(
+        ct: np.ndarray,
+        slices: list,
+        *,
+        enforce_symmetry: bool = True,
+        enforce_continuity: bool = True,
+        min_area: int = 1500,
+    ) -> list:
+        """
+        Full anatomical-region pipeline for a Z-crop:
+
+        1. per-slice ``body_mask_from_intensity`` (+ optional L/R symmetry)
+        2. optional Z continuity to avoid missing slices
+
+        Returns list of int masks (0=background, 1=anatomical), one per slice index.
+        """
+        bg_bools = [
+            ImageProcessor.body_mask_from_intensity(
+                ct[:, :, z],
+                min_area=min_area,
+                enforce_symmetry=enforce_symmetry,
+            )
+            for z in slices
+        ]
+        # Convert True=background → 0/1 anatomical masks
+        masks = [np.where(bg, 0, 1).astype(np.int32) for bg in bg_bools]
+        if enforce_continuity and len(masks) >= 2:
+            masks = ImageProcessor.enforce_anatomical_continuity(
+                masks, min_area=min_area
+            )
+        return masks
 
     @staticmethod
     def _split_head_from_bottom(
