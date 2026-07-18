@@ -140,6 +140,7 @@ class ImageProcessor:
         max_fill: float = 0.55,
         fov_floor: float = 0.02,
         enforce_symmetry: bool = True,
+        sagittal_flip_axis: int = 0,
     ) -> np.ndarray:
         """
         Patient-vs-background mask for H&N / shoulder axial CT.
@@ -155,8 +156,8 @@ class ImageProcessor:
         - Works for **head and shoulders** (no left-crop, no head watershed).
         - Always leaves background: if fill is too high, raise the tissue
           threshold and prefer the connected component nearest the center.
-        - Optional **sagittal symmetry**: fill contralateral holes when the
-          mirrored side is tissue-like (human L/R similarity).
+        - Optional **sagittal (L/R) symmetry**: ``sagittal_flip_axis=0`` matches
+          left-right after ``imshow(img.T)`` used in this project (not A/P).
         """
         if not isinstance(img, np.ndarray):
             raise TypeError("img must be a numpy.ndarray")
@@ -220,16 +221,18 @@ class ImageProcessor:
         patient = labels == best.label
         patient = binary_fill_holes(patient)
 
-        # 4) Sagittal symmetry: mirror-fill contralateral gaps (soft tissue gate)
+        # 4) Sagittal symmetry (patient L/R).
+        # Notebook viz uses imshow(..., .T), so display left-right == array axis 0.
+        # Using fliplr (axis 1) wrongly mirrors anterior/posterior → table/top artifacts.
         if enforce_symmetry:
-            # Softer than main tissue threshold so contralateral soft tissue counts
-            t_sym = min(t, float(np.percentile(fov_vals, 35)))
+            t_sym = float(np.percentile(fov_vals, 45))  # body vs darker FOV air
             soft_tissue = fov & (g > t_sym)
             patient = ImageProcessor._enforce_sagittal_symmetry(
                 patient,
                 tissue_candidate=soft_tissue,
                 fov=fov,
                 min_area=max(500, min_area // 3),
+                flip_axis=sagittal_flip_axis,
             )
 
         # Final guard: never allow near-full-image anatomy
@@ -256,23 +259,54 @@ class ImageProcessor:
         tissue_candidate: np.ndarray,
         fov: np.ndarray,
         min_area: int = 500,
+        flip_axis: int = 0,
     ) -> np.ndarray:
         """
-        Encourage left/right similarity about the mid-sagittal (vertical) axis.
+        Left/right (sagittal) symmetry about the mid-plane.
 
-        Strategy: union with horizontally flipped mask, but only keep added
-        voxels that fall in FOV and soft-tissue candidate (blocks painting air).
+        Parameters
+        ----------
+        flip_axis
+            0 = ``flipud`` (L/R when volumes are shown with ``imshow(img.T)``),
+            1 = ``fliplr`` (L/R when rows=Y, cols=X without transpose).
+
+        Only adds mirrored voxels that:
+        - fall inside FOV
+        - look like body vs air (``tissue_candidate``)
+        - lie near the current patient bbox (avoids painting table / top bar)
         """
-        mirrored = np.fliplr(patient)
-        # Stronger than before: allow mirror fill wherever soft tissue exists
-        fill = mirrored & tissue_candidate & fov
+        if flip_axis not in (0, 1):
+            raise ValueError("flip_axis must be 0 or 1")
+
+        mirrored = np.flip(patient, axis=flip_axis)
+
+        # Restrict additions to a padded bbox of the current patient (no table invent)
+        ys, xs = np.where(patient)
+        h, w = patient.shape
+        roi = np.zeros_like(patient, dtype=bool)
+        if len(ys) > 0:
+            pad = max(8, int(0.04 * max(h, w)))
+            y0, y1 = max(0, int(ys.min()) - pad), min(h, int(ys.max()) + pad + 1)
+            x0, x1 = max(0, int(xs.min()) - pad), min(w, int(xs.max()) + pad + 1)
+            # Expand bbox on the flip axis so contralateral side is allowed
+            if flip_axis == 0:
+                # flipping rows: allow full height span of bbox, widen? actually L/R is rows
+                # contralateral is the flipped row range — use full padded bbox flipped
+                roi[y0:y1, x0:x1] = True
+                roi = roi | np.flip(roi, axis=0)
+            else:
+                roi[y0:y1, x0:x1] = True
+                roi = roi | np.flip(roi, axis=1)
+        else:
+            return patient
+
+        fill = mirrored & tissue_candidate & fov & roi & (~patient)
         out = (patient | fill) & fov
         out = binary_fill_holes(out)
         out = morphology.binary_closing(out, morphology.disk(5))
         out = binary_fill_holes(out)
         out = morphology.remove_small_objects(out, min_size=min_area)
 
-        h, w = out.shape
         cy, cx = (h - 1) / 2.0, (w - 1) / 2.0
         labels = measure.label(out)
         if labels.max() == 0:
@@ -357,6 +391,7 @@ class ImageProcessor:
         enforce_symmetry: bool = True,
         enforce_continuity: bool = True,
         min_area: int = 1500,
+        sagittal_flip_axis: int = 0,
     ) -> list:
         """
         Full anatomical-region pipeline for a Z-crop:
@@ -371,6 +406,7 @@ class ImageProcessor:
                 ct[:, :, z],
                 min_area=min_area,
                 enforce_symmetry=enforce_symmetry,
+                sagittal_flip_axis=sagittal_flip_axis,
             )
             for z in slices
         ]
