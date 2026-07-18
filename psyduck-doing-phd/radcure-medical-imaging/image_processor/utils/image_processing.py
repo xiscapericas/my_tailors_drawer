@@ -125,7 +125,57 @@ class ImageProcessor:
         
         background = ~head_mask
         return background
-    
+
+    @staticmethod
+    def body_mask_from_intensity(
+        img: np.ndarray,
+        *,
+        sigma: float = 1.0,
+        min_area: int = 2000,
+        thresh_method: str = "otsu",
+    ) -> np.ndarray:
+        """
+        Simple patient-vs-background mask from intensity (no left-crop / watershed).
+
+        Same return convention as ``head_mask_from_array``:
+        True = background, False = anatomical (patient).
+
+        Intended as a more stable baseline for H&N axial CT when the edge-based
+        ``head_mask_from_array`` fails (empty slices, left-half crop, etc.).
+        """
+        if not isinstance(img, np.ndarray):
+            raise TypeError("img must be a numpy.ndarray")
+        if img.ndim != 2:
+            raise ValueError(f"img must be 2D (H,W); got shape {img.shape}")
+
+        im = np.nan_to_num(img.astype(np.float32), nan=0.0, posinf=1.0, neginf=0.0)
+        p1, p99 = np.percentile(im, (1, 99))
+        denom = (p99 - p1) if (p99 - p1) > 1e-6 else 1e-6
+        im = np.clip((im - p1) / denom, 0.0, 1.0)
+
+        g = gaussian_filter(im, sigma=sigma)
+        if thresh_method == "otsu":
+            t = filters.threshold_otsu(g)
+        else:
+            t = float(np.percentile(g, 40))
+        patient = g > t
+
+        patient = binary_fill_holes(patient)
+        patient = morphology.remove_small_objects(patient, min_size=min_area)
+        patient = morphology.binary_closing(patient, morphology.disk(5))
+        patient = binary_fill_holes(patient)
+
+        labels = measure.label(patient)
+        if labels.max() > 0:
+            props = measure.regionprops(labels)
+            largest = max(props, key=lambda r: r.area).label
+            patient = labels == largest
+            patient = binary_fill_holes(patient)
+        else:
+            patient = np.zeros_like(patient, dtype=bool)
+
+        return ~patient
+
     @staticmethod
     def _split_head_from_bottom(
         img: np.ndarray,
