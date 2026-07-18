@@ -84,6 +84,7 @@ Single map of **all** docs. Each topic has **one canonical file** — others lin
 |-----|------|
 | [retrain_epoch_study/retrain_epoch_study.md](../research_notebooks/retrain_epoch_study/retrain_epoch_study.md) | **Paper draft** — Test1–3 narrative + figures |
 | [research_notebooks/README.md](../research_notebooks/README.md) | Notebook index |
+| [preprocessing_pipeline_review/](../research_notebooks/preprocessing_pipeline_review/) | Colab audit: preprocess top→bottom (bg / other-tissue / viz) |
 | [Surface_Dice_Analysis_Report.md](../research_notebooks/Surface_Dice_Analysis_Report.md) | Metric exploration notes |
 
 ---
