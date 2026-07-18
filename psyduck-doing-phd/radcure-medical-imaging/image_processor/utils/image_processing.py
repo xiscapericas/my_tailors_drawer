@@ -220,10 +220,16 @@ class ImageProcessor:
         patient = labels == best.label
         patient = binary_fill_holes(patient)
 
-        # 4) Sagittal symmetry: fill contralateral gaps only where tissue exists
+        # 4) Sagittal symmetry: mirror-fill contralateral gaps (soft tissue gate)
         if enforce_symmetry:
+            # Softer than main tissue threshold so contralateral soft tissue counts
+            t_sym = min(t, float(np.percentile(fov_vals, 35)))
+            soft_tissue = fov & (g > t_sym)
             patient = ImageProcessor._enforce_sagittal_symmetry(
-                patient, tissue_candidate=tissue, fov=fov, min_area=min_area
+                patient,
+                tissue_candidate=soft_tissue,
+                fov=fov,
+                min_area=max(500, min_area // 3),
             )
 
         # Final guard: never allow near-full-image anatomy
@@ -249,25 +255,23 @@ class ImageProcessor:
         *,
         tissue_candidate: np.ndarray,
         fov: np.ndarray,
-        min_area: int = 1500,
+        min_area: int = 500,
     ) -> np.ndarray:
         """
         Encourage left/right similarity about the mid-sagittal (vertical) axis.
 
-        Adds mirrored patient voxels only where intensity already looks like
-        tissue inside the FOV (avoids painting air / table on the other side).
+        Strategy: union with horizontally flipped mask, but only keep added
+        voxels that fall in FOV and soft-tissue candidate (blocks painting air).
         """
         mirrored = np.fliplr(patient)
-        # Fill holes that exist on the contralateral side if tissue supports it
-        fill = mirrored & tissue_candidate & fov & (~patient)
-        out = patient | fill
+        # Stronger than before: allow mirror fill wherever soft tissue exists
+        fill = mirrored & tissue_candidate & fov
+        out = (patient | fill) & fov
+        out = binary_fill_holes(out)
+        out = morphology.binary_closing(out, morphology.disk(5))
         out = binary_fill_holes(out)
         out = morphology.remove_small_objects(out, min_size=min_area)
-        out = morphology.binary_closing(out, morphology.disk(3))
-        out = binary_fill_holes(out)
-        out = out & fov
 
-        # Keep centered component after symmetry fill
         h, w = out.shape
         cy, cx = (h - 1) / 2.0, (w - 1) / 2.0
         labels = measure.label(out)
@@ -286,78 +290,62 @@ class ImageProcessor:
     def enforce_anatomical_continuity(
         background_masks: list,
         *,
-        min_area: int = 1500,
-        z_close: int = 3,
+        min_area: int = 800,
+        z_radius: int = 2,
     ) -> list:
         """
         Fill isolated empty / tiny anatomical slices using Z-neighbors.
 
-        Parameters
-        ----------
-        background_masks
-            List of 2D arrays with production convention: 0=background, 1=anatomical
-            (or bool True=background from ``body_mask_from_intensity``).
-        min_area
-            Below this, a slice is treated as missing and filled from neighbors.
-        z_close
-            Odd window length for binary closing along Z (e.g. 3 → gap of 1).
-
-        Returns
-        -------
-        list
-            Same length/type convention as input (0/1 int masks).
+        More aggressive than a single-neighbor patch:
+        - weak slice ← OR of all strong slices within ±z_radius
+        - then binary closing along Z (bridges 1–2 slice gaps)
+        - does **not** re-apply a high min_area wipe after fill
         """
         if not background_masks:
             return []
 
-        # Convert to patient bool volume (Z, H, W)
         patients = []
         for m in background_masks:
             m = np.asarray(m)
             if m.dtype == bool:
-                # True = background
                 patients.append(~m)
             else:
                 patients.append(m == 1)
 
         vol = np.stack(patients, axis=0).astype(bool)
         z, h, w = vol.shape
+        areas = vol.reshape(z, -1).sum(axis=1).astype(np.int64)
 
-        # Mark weak slices
-        areas = vol.reshape(z, -1).sum(axis=1)
-        weak = areas < min_area
-
-        # Fill weak slices from immediate neighbors (before closing)
+        # Pass 1: fill weak slices from neighborhood OR
         for i in range(z):
-            if not weak[i]:
+            if areas[i] >= min_area:
                 continue
             neigh = []
-            if i > 0 and areas[i - 1] >= min_area:
-                neigh.append(vol[i - 1])
-            if i + 1 < z and areas[i + 1] >= min_area:
-                neigh.append(vol[i + 1])
+            for j in range(max(0, i - z_radius), min(z, i + z_radius + 1)):
+                if j == i:
+                    continue
+                if areas[j] >= min_area:
+                    neigh.append(vol[j])
             if not neigh:
                 continue
             merged = np.zeros((h, w), dtype=bool)
             for n in neigh:
                 merged |= n
-            # Soft intersection if both neighbors exist (more stable)
-            if len(neigh) == 2:
-                inter = neigh[0] & neigh[1]
-                if int(inter.sum()) >= min_area // 2:
-                    merged = inter
             vol[i] = binary_fill_holes(merged)
+            areas[i] = int(vol[i].sum())
 
-        # Small 3D closing along Z to bridge residual 1-slice gaps
-        if z_close >= 3 and z >= 3:
-            kz = z_close if z_close % 2 == 1 else z_close + 1
-            struct = np.zeros((kz, 3, 3), dtype=bool)
-            struct[:, 1, 1] = True
-            struct[kz // 2, :, :] = True
+        # Pass 2: closing along Z to bridge residual gaps
+        if z >= 3:
+            kz = 2 * z_radius + 1
+            struct = np.zeros((kz, 1, 1), dtype=bool)
+            struct[:, 0, 0] = True
             vol = nd_binary_closing(vol, structure=struct)
             for i in range(z):
                 vol[i] = binary_fill_holes(vol[i])
-                vol[i] = morphology.remove_small_objects(vol[i], min_size=min_area)
+                # light cleanup only — keep small filled bridges
+                vol[i] = morphology.remove_small_objects(
+                    vol[i], min_size=max(200, min_area // 4)
+                )
 
         return [np.where(vol[i], 1, 0).astype(np.int32) for i in range(z)]
 
@@ -386,11 +374,13 @@ class ImageProcessor:
             )
             for z in slices
         ]
-        # Convert True=background → 0/1 anatomical masks
         masks = [np.where(bg, 0, 1).astype(np.int32) for bg in bg_bools]
         if enforce_continuity and len(masks) >= 2:
+            # Lower bar so thin shoulder slices are not treated as "ok empty"
             masks = ImageProcessor.enforce_anatomical_continuity(
-                masks, min_area=min_area
+                masks,
+                min_area=max(400, min_area // 3),
+                z_radius=2,
             )
         return masks
 
