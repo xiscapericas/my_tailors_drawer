@@ -128,7 +128,7 @@ Cross-task duplicate basenames (`optic_nerve_*`, `skull`) share **one** index.
 ## Colab ops (easy to lose)
 
 - Repo: `github.com/xiscapericas/my_tailors_drawer` → `psyduck-doing-phd/radcure-medical-imaging`.
-- `pip install -e <absolute REPO_ROOT>`; pin **`numpy==2.0.2` last**; install **`totalsegmentator`** only for Step C (then restart).
+- `pip install -e <absolute REPO_ROOT>`; pin **`numpy>=2.1,<2.3`** (not 2.0.2 — breaks imagecodecs); install **`totalsegmentator`** only for Step C (then restart).
 - After pull: reinstall + **clear `sys.modules`** for `image_processor*`; B1 asserts `z_radius` + `flip_axis`/`flipud` in source.
 - Drive copy of notebook goes stale — re-copy or pull from git.
 
