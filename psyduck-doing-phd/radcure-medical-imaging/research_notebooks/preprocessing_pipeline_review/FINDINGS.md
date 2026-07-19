@@ -1,6 +1,6 @@
 # Preprocessing review — findings & handoff
 
-**Status (2026-07-19):** Steps A–B done (sweet spot). Steps **C–E** added (canonical organ dict, TotalSegmentator, combined mask, CT/organs/tumor viz). Research-only; improved bg **not** wired into production `MaskGenerator` yet.
+**Status (2026-07-19):** Steps A–E validated in Colab. **Production wired** (improved bg default + optional anatomy QC). **Test5 planned** — see `experiments/configs/test5_radheck_improved_preprocess.yaml`.
 
 **Canonical notebook:** [`preprocessing_pipeline_review_colab.ipynb`](preprocessing_pipeline_review_colab.ipynb)  
 **Implementation APIs (new):** `image_processor/utils/image_processing.py`, `image_processor/utils/anatomy_qc.py`  
@@ -119,11 +119,11 @@ Cross-task duplicate basenames (`optic_nerve_*`, `skull`) share **one** index.
 4. **D2** — other-tissue fill summary  
 5. **E** — 3 columns: CT | CT+organs | CT+organs+tumors  
 
-### Still open
+### Still open / follow-ups
 
-- Production `MaskGenerator.generate_background_array` still uses `head_mask_from_array`
 - Optional: make `add_organ` strict when a canonical dict is loaded
-- DatasetXXX rebuild / Dice check after approving C–E visuals
+- Optional: rebuild HECKTOR Dataset152 with improved bg for a fully matched HECKTOR eval
+- Fill Test5 Dice vs Test4 after training
 
 ---
 
@@ -136,25 +136,25 @@ Cross-task duplicate basenames (`optic_nerve_*`, `skull`) share **one** index.
 
 ---
 
-## Production gap (do not forget)
+## Production wiring (2026-07-19) + Test5
 
-`MaskGenerator` still calls **`head_mask_from_array`** only. Improved masks live in research notebook + library helpers; **wiring into CaseProcessor is a later decision** after Step C–E visual QA.
+**Wired into production:**
+
+| Piece | Where |
+|-------|--------|
+| Improved anatomical background | `MaskGenerator.generate_background_array` default `background_mode="improved"` (`legacy` still available) |
+| Anatomy QC gate | `CaseProcessor(anatomy_qc_threshold=0.70)` → raises `AnatomyQCRejected` |
+| Canonical organ dict | `OrganDictionary.from_hn_canonical` / `resources/organ_dictionary_hn_canonical.json` (seeded by Test5 Phase 2) |
+
+**Test5** (`changed_from: test4`): same separate GTVp/GTVn + 700 epochs + Test4 Tr/Va/Ts family, minus QC discards.
+
+| Artifact | Path |
+|----------|------|
+| Config | `experiments/configs/test5_radheck_improved_preprocess.yaml` |
+| Relabel | `python -m pipelines.test5.relabel_tumor_batch` |
+| Build | `python -m pipelines.test5.build_dataset650` |
+| Runbook | `pipelines/radheck/Retrain-Radheck-Test5.md` |
 
 ---
 
-## Next after C–E QA
-
-1. Confirm other-tissue is not FOV/table air on audit cases.
-2. Decide whether to replace production background with `anatomical_region_masks_from_slices`.
-3. Point production `ORGAN_DICTIONARY_PATH` at the canonical JSON (or a copy).
-4. Rebuild a small DatasetXXX slice and re-check GTVp Dice vs old preprocess.
-
----
-
-## Key commits (local history)
-
-- Continuity + symmetry experiments → axis fix (`Fix axis` and predecessors on `main`).
-- Anatomy QC logging / thresholds.
-- Canonical H&N organ dictionary + Steps C–E notebook cells.
-
-When extending, prefer **minimal** changes to existing modules / notebook cells over parallel implementations.
+## Colab ops (easy to lose)

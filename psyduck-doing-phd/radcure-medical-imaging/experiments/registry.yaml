@@ -189,17 +189,56 @@ experiments:
       Phase 3 (done): build Dataset650 + train 700 epochs; same Tr/Va/Ts splits as Test3.
       Results write-up: research_notebooks/test4_gtvp_gtvn/TEST4_RESULTS.md
 
+  test5:
+    id: test5
+    name: RADHECK — improved preprocess (QC + bg) vs Test4
+    status: planned
+    config_file: configs/test5_radheck_improved_preprocess.yaml
+    changed_from: test4
+    hypothesis: >
+      Improved anatomical background (FOV body mask + L/R symmetry + Z continuity),
+      anatomy QC discard of non-human FOVs, and a canonical organ dictionary improve
+      GTVp/GTVn Dice vs Test4 on the same split family (minus QC exclusions).
+    training:
+      cohorts: [radcure, hecktor]
+      dataset_id: 650
+      tumor_label_mode: separate
+      background_mode: improved
+      anatomy_qc_threshold: 0.70
+      trainer: nnUNetTrainer_700epochs_NoMirroring
+      epochs: 700
+      configuration: 3d_fullres
+      build_script: pipelines/test5/build_dataset650.py
+      retrain_runbook: pipelines/radheck/Retrain-Radheck-Test5.md
+      preprocessing_notebook: research_notebooks/preprocessing_pipeline_review/preprocessing_pipeline_review_colab.ipynb
+    evaluation:
+      model_dataset_id: 650
+      metrics: [GTVp Dice, GTVn Dice]
+      hecktor_eval_output_subdir: hecktor_validation
+    results:
+      primary_metric: GTVp Dice
+      secondary_metrics: [GTVn Dice]
+      radcure:
+        mean_dice_gtvp: null
+        mean_dice_gtvn: null
+        n_cases: null
+      hecktor:
+        mean_dice_gtvp: null
+        mean_dice_gtvn: null
+        n_cases: null
+    notes: |
+      Phase 2: python -m pipelines.test5.relabel_tumor_batch
+        (reuse TS; improved bg; anatomy QC 0.70; canonical organ dict).
+      Phase 3: python -m pipelines.test5.build_dataset650
+        (Test4/Test3 Tr/Va/Ts minus QC discards).
+      Train: same 700-epoch NoMirroring trainer as Test4; do not reuse preprocess.
+
 # ---------------------------------------------------------------------------
 # Next experiment — naming rules (see experiments/README.md § Naming convention)
 # ---------------------------------------------------------------------------
 #
-# Before Test5+:
+# Before Test6+:
 #   1. "Test{N} changes ___ compared to {changed_from}; everything else is identical."
 #   2. configs/test{N}_{cohort}_{variable}.yaml
 #   3. local.yaml: RETRAIN_RADHECK_TEST{N} → .../nnunet_radheck_test_{N}_retrain
-#
-# next:
-#   id: test5
-#   config_file: configs/test5_radheck_....yaml
-#   changed_from: test4
-#   hypothesis: ""
+##   hypothesis: ""

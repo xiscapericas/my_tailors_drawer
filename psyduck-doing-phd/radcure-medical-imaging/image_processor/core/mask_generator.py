@@ -12,8 +12,16 @@ from image_processor.io.nifti_handler import NIfTIHandler
 
 class MaskGenerator:
     """Generates combined masks from TotalSegmentator outputs and tumor masks."""
+
+    BACKGROUND_MODE_LEGACY = "legacy"
+    BACKGROUND_MODE_IMPROVED = "improved"
     
-    def __init__(self, organ_dictionary: OrganDictionary):
+    def __init__(
+        self,
+        organ_dictionary: OrganDictionary,
+        *,
+        background_mode: str = BACKGROUND_MODE_IMPROVED,
+    ):
         """
         Initialize mask generator.
         
@@ -21,8 +29,21 @@ class MaskGenerator:
         ----------
         organ_dictionary : OrganDictionary
             Organ dictionary instance
+        background_mode : str
+            ``improved`` — FOV-aware body mask + L/R sagittal symmetry + Z continuity
+            (preprocessing review sweet spot). ``legacy`` — ``head_mask_from_array``.
         """
         self.organ_dictionary = organ_dictionary
+        mode = (background_mode or self.BACKGROUND_MODE_IMPROVED).strip().lower()
+        if mode not in (
+            self.BACKGROUND_MODE_LEGACY,
+            self.BACKGROUND_MODE_IMPROVED,
+        ):
+            raise ValueError(
+                f"background_mode must be '{self.BACKGROUND_MODE_LEGACY}' or "
+                f"'{self.BACKGROUND_MODE_IMPROVED}', got {background_mode!r}"
+            )
+        self.background_mode = mode
     
     def generate_background_array(
         self,
@@ -44,8 +65,19 @@ class MaskGenerator:
         List[np.ndarray]
             List of integer masks per slice: 0 = background, 1 = anatomical_region.
         """
-        result = []
         nii_image = NIfTIHandler.load_nii_image(nifti_output_path)
+
+        if self.background_mode == self.BACKGROUND_MODE_IMPROVED:
+            # Research sweet spot: intensity body mask + sagittal L/R + Z continuity
+            return ImageProcessor.anatomical_region_masks_from_slices(
+                nii_image,
+                non_zero_tumor_mask_expanded,
+                enforce_symmetry=True,
+                enforce_continuity=True,
+                sagittal_flip_axis=0,
+            )
+
+        result = []
         for slice_ind in non_zero_tumor_mask_expanded:
             img = nii_image[:, :, slice_ind]
             background_mask_bool = ImageProcessor.head_mask_from_array(img)

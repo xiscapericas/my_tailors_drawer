@@ -24,7 +24,24 @@ from image_processor.core.segmentator import TotalSegmentatorWrapper
 from image_processor.core.mask_generator import MaskGenerator
 from image_processor.utils.organ_dictionary import OrganDictionary
 from image_processor.utils.image_processing import ImageProcessor
+from image_processor.utils.anatomy_qc import (
+    apply_anatomy_threshold,
+    score_human_anatomy,
+)
 from image_processor.visualization.visualizer import MedicalImageVisualizer
+
+
+class AnatomyQCRejected(Exception):
+    """Raised when anatomy QC discards a case (non-human / wrong FOV)."""
+
+    def __init__(self, case_id: str, record: dict):
+        self.case_id = case_id
+        self.record = record
+        score = record.get("score")
+        reasons = record.get("reasons") or []
+        super().__init__(
+            f"Anatomy QC discarded {case_id}: score={score}, reasons={reasons}"
+        )
 
 
 class CaseProcessor:
@@ -48,6 +65,8 @@ class CaseProcessor:
         segmentator_nr_thr_resamp: Optional[int] = None,
         segmentator_nr_thr_saving: Optional[int] = None,
         tumor_label_mode: str = TUMOR_LABEL_MODE_MERGED,
+        background_mode: str = MaskGenerator.BACKGROUND_MODE_IMPROVED,
+        anatomy_qc_threshold: Optional[float] = None,
     ):
         """
         Initialize case processor.
@@ -85,6 +104,11 @@ class CaseProcessor:
             Passed to TotalSegmentator (lower values reduce memory; None keeps library defaults).
         tumor_label_mode : str
             ``merged`` (Test1–3: GTVp+GTVn → single GTVp label) or ``separate`` (Test4+: distinct GTVp/GTVn).
+        background_mode : str
+            ``improved`` (default) or ``legacy`` — see ``MaskGenerator``.
+        anatomy_qc_threshold : float, optional
+            If set (e.g. 0.70), discard cases that fail anatomy QC during relabel/process
+            by raising ``AnatomyQCRejected``.
         """
         self.main_path = main_path
         self.main_path_retrain = os.path.join(main_path, 'TotalSegmentatorRetrain')
@@ -99,6 +123,7 @@ class CaseProcessor:
                 f"'{TUMOR_LABEL_MODE_SEPARATE}', got {tumor_label_mode!r}"
             )
         self.tumor_label_mode = tumor_label_mode
+        self.anatomy_qc_threshold = anatomy_qc_threshold
         
         # Initialize components
         self.aws_handler = AWSHandler(
@@ -119,7 +144,10 @@ class CaseProcessor:
             nr_thr_saving=segmentator_nr_thr_saving,
         )
         self.organ_dictionary = OrganDictionary(organ_dictionary_path)
-        self.mask_generator = MaskGenerator(self.organ_dictionary)
+        self.mask_generator = MaskGenerator(
+            self.organ_dictionary,
+            background_mode=background_mode,
+        )
         self.visualizer = MedicalImageVisualizer()
         
         # Default TotalSegmentator tasks
@@ -137,6 +165,23 @@ class CaseProcessor:
         
         # Create directories
         os.makedirs(self.main_path_retrain, exist_ok=True)
+
+    def _maybe_reject_anatomy_qc(
+        self,
+        case_id: str,
+        ct: np.ndarray,
+        tumor: np.ndarray,
+        slices: List[int],
+    ) -> None:
+        """Raise AnatomyQCRejected when threshold is set and case fails."""
+        if self.anatomy_qc_threshold is None:
+            return
+        result = score_human_anatomy(ct, tumor, slices)
+        keep, record = apply_anatomy_threshold(
+            result, threshold=float(self.anatomy_qc_threshold)
+        )
+        if not keep:
+            raise AnatomyQCRejected(case_id, record)
 
     @staticmethod
     def _maybe_empty_cuda_cache() -> None:
@@ -298,6 +343,10 @@ class CaseProcessor:
             contours, nifti_output_path, mask_nifti_path
         )
 
+        tumor_aligned = nib.load(mask_nifti_path).get_fdata().astype(np.int32)
+        ct_vol = nib.load(nifti_output_path).get_fdata().astype(np.float32)
+        self._maybe_reject_anatomy_qc(case_id, ct_vol, tumor_aligned, slices_to_use)
+
         background_array_int = self.mask_generator.generate_background_array(
             slices_to_use, nifti_output_path
         )
@@ -356,6 +405,9 @@ class CaseProcessor:
             start = max(int(min(non_zero)) - self.slice_expansion, 0)
             end = min(int(max(non_zero)) + self.slice_expansion, z - 1)
             slices_to_use = list(range(start, end + 1))
+
+        ct_vol = nib.load(path_ct).get_fdata().astype(np.float32)
+        self._maybe_reject_anatomy_qc(case_id, ct_vol, mask_vol, slices_to_use)
 
         background_array_int = self.mask_generator.generate_background_array(
             slices_to_use, path_ct

@@ -17,5 +17,12 @@ RETRAIN_RADHECK_TEST3: /path/to/work/nnunet_radheck_test_3_retrain
 # TEST4_WORK_ROOT: /path/to/work/retrain_test4  # Phase 2 relabel output root
 # TEST4_REFERENCE_DATASET650: /path/to/nnunet_radheck_test_1/Dataset650_TotalSegmentator  # Test3 splits
 
+# RETRAIN_RADHECK_TEST5: /path/to/work/retrain_test5/nnunet_retrain
+# RADHECK_DATASET_TEST5: /path/to/work/retrain_test5/Dataset650_TotalSegmentator
+# TEST5_WORK_ROOT: /path/to/work/retrain_test5
+# TEST5_REFERENCE_DATASET650: /path/to/work/retrain_test4/Dataset650_TotalSegmentator  # same splits as Test4
+# TEST5_RADCURE_SOURCE_MAIN_PATH: /path/to/RadcureComplete
+# TEST5_HECKTOR_SOURCE_CASES_ROOT: /path/to/hecktor/cases
+
 ORGAN_DICTIONARY_PATH: /path/to/radcure_dictionary.json
 NNUNET_PATH: /path/to/nnUNet
