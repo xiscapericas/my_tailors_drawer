@@ -108,6 +108,8 @@ Cross-task duplicate basenames (`optic_nerve_*`, `skull`) share **one** index.
 - **GTVp = red**, **GTVn = pink**
 - TS organs: fixed palette that **never** uses those hues
 - Helpers: `rgba_by_name`, `rgba_by_index`, `paint_label_rgba`
+- **Reference image:** `save_organ_color_palette` → notebook Step **C1b** +  
+  `image_processor/resources/organ_color_palette_reference.png` (+ `.json`)
 
 ### Notebook flow
 

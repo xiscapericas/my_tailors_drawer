@@ -157,3 +157,105 @@ def organ_indices(
     return sorted(
         int(i) for n, i in organ_dict.items() if n not in skip
     )
+
+
+def save_organ_color_palette(
+    organ_dict: Mapping[str, int],
+    output_png: str,
+    *,
+    output_json: Optional[str] = None,
+    title: str = "Canonical organ colour palette (reference)",
+    ncols: int = 3,
+    dpi: int = 150,
+) -> str:
+    """
+    Save a reference figure: colour swatch + index + organ name for every label.
+
+    Also writes optional JSON ``{name: {index, rgb, rgba}}`` next to the PNG
+    (or at ``output_json``) so the palette can be reused outside the notebook.
+
+    Background (index 0) is shown as a checkerboard / hollow swatch because it
+    is fully transparent in overlays.
+    """
+    import json
+    from pathlib import Path
+
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+
+    colors = rgba_by_name(organ_dict)
+    # Stable order by label index
+    items = sorted(organ_dict.items(), key=lambda kv: int(kv[1]))
+    n = len(items)
+    ncols = max(1, int(ncols))
+    nrows = int(np.ceil(n / ncols))
+
+    fig_w = 4.2 * ncols
+    fig_h = max(2.5, 0.38 * nrows + 0.8)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    ax.set_xlim(0, ncols)
+    ax.set_ylim(0, nrows)
+    ax.invert_yaxis()
+    ax.axis("off")
+    ax.set_title(title, fontsize=12, pad=8)
+
+    payload = {}
+    for i, (name, idx) in enumerate(items):
+        row = i // ncols
+        col = i % ncols
+        rgba = colors.get(name, COLOR_OTHER_TISSUE)
+        rgb = tuple(float(x) for x in rgba[:3])
+        alpha = float(rgba[3]) if len(rgba) > 3 else 1.0
+
+        x0, y0 = col + 0.05, row + 0.15
+        sw = 0.22
+        sh = 0.55
+        if name == "background" or alpha < 1e-6:
+            # hollow swatch for transparent background
+            ax.add_patch(
+                Rectangle(
+                    (x0, y0),
+                    sw,
+                    sh,
+                    fill=False,
+                    edgecolor="0.4",
+                    linewidth=1.2,
+                    linestyle="--",
+                )
+            )
+        else:
+            ax.add_patch(
+                Rectangle(
+                    (x0, y0),
+                    sw,
+                    sh,
+                    facecolor=rgb + (min(1.0, max(alpha, 0.85)),),
+                    edgecolor="0.2",
+                    linewidth=0.6,
+                )
+            )
+        ax.text(
+            x0 + sw + 0.04,
+            y0 + sh / 2,
+            f"{int(idx):3d}  {name}",
+            va="center",
+            ha="left",
+            fontsize=7.5,
+            family="monospace",
+        )
+        payload[name] = {
+            "index": int(idx),
+            "rgb": [round(c, 4) for c in rgb],
+            "rgba": [round(c, 4) for c in (rgb + (alpha,))],
+        }
+
+    out_png = Path(output_png)
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(out_png, dpi=dpi, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+
+    json_path = Path(output_json) if output_json else out_png.with_suffix(".json")
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return str(out_png)

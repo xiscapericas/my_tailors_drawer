@@ -12,7 +12,7 @@ setup(
     long_description_content_type="text/markdown",
     packages=find_packages(),
     package_data={
-        "image_processor": ["resources/*.json"],
+        "image_processor": ["resources/*.json", "resources/*.png"],
     },
     python_requires='>=3.7',
     entry_points={

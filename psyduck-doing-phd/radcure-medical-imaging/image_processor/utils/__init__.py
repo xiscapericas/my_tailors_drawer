@@ -15,6 +15,7 @@ from image_processor.utils.label_colors import (
     rgba_by_index,
     rgba_by_name,
     paint_label_rgba,
+    save_organ_color_palette,
 )
 
 __all__ = [
@@ -28,5 +29,6 @@ __all__ = [
     "rgba_by_index",
     "rgba_by_name",
     "paint_label_rgba",
+    "save_organ_color_palette",
 ]
 
