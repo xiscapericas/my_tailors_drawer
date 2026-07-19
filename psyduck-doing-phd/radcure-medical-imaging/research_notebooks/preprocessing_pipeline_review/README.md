@@ -4,8 +4,9 @@ Colab audit of DICOM/NIfTI → nnUNet inputs (RADCURE + HECKTOR), focused on bac
 
 | File | Purpose |
 |------|---------|
-| [`preprocessing_pipeline_review_colab.ipynb`](preprocessing_pipeline_review_colab.ipynb) | Drive + install + audit cases, Steps A → B (+ later C) |
-| [`FINDINGS.md`](FINDINGS.md) | **Session handoff** — learnings, sweet-spot APIs, next phase |
+| [`preprocessing_pipeline_review_colab.ipynb`](preprocessing_pipeline_review_colab.ipynb) | Drive + install + audit cases, Steps A → E |
+| [`FINDINGS.md`](FINDINGS.md) | **Session handoff** — learnings, APIs, next decisions |
+| [`../../image_processor/resources/organ_dictionary_hn_canonical.json`](../../image_processor/resources/organ_dictionary_hn_canonical.json) | Fixed H&N label map (TS organs + GTVp/GTVn) |
 
 ### Progress
 
@@ -13,8 +14,11 @@ Colab audit of DICOM/NIfTI → nnUNet inputs (RADCURE + HECKTOR), focused on bac
 |------|--------|--------|
 | A | CT + tumor (align RTSTRUCT, GTVp/GTVn) | Done |
 | A2–A3 | Anatomy QC + extra cases | Done |
-| B | Anatomical background (intensity + L/R symmetry + Z continuity) | **Sweet spot** (research) |
-| C+ | TotalSegmentator, `other-tissue`, production wiring | **Next** |
+| B | Anatomical background (intensity + L/R symmetry + Z continuity) | Sweet spot (research) |
+| C | Canonical organ dict + TotalSegmentator | **In notebook** — run on Colab |
+| D | Combined mask + `other-tissue` + tumor stamp | **In notebook** |
+| E | Viz: CT \| organs \| + GTVp(red)/GTVn(pink) | **In notebook** |
+| Later | Production bg wiring / DatasetXXX Dice | After C–E QA |
 
 ### Audit cases (see FINDINGS for HECKTOR fallbacks)
 

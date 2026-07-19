@@ -1,6 +1,6 @@
 # Preprocessing review — findings & handoff
 
-**Status (2026-07-18):** Step A + anatomy QC + Step B (anatomical background) reached a **visual sweet spot**. Research-only; **not yet wired into production** `CaseProcessor` / `MaskGenerator`.
+**Status (2026-07-19):** Steps A–B done (sweet spot). Steps **C–E** added (canonical organ dict, TotalSegmentator, combined mask, CT/organs/tumor viz). Research-only; improved bg **not** wired into production `MaskGenerator` yet.
 
 **Canonical notebook:** [`preprocessing_pipeline_review_colab.ipynb`](preprocessing_pipeline_review_colab.ipynb)  
 **Implementation APIs (new):** `image_processor/utils/image_processing.py`, `image_processor/utils/anatomy_qc.py`  
@@ -85,10 +85,50 @@ API knobs: `enforce_symmetry`, `sagittal_flip_axis=0`, `enforce_continuity`, `mi
 
 ---
 
+## Step C–E — TotalSegmentator, fixed labels, tumor viz (2026-07-19)
+
+**Status:** Research notebook Steps C–E implemented; run on Colab after A–B.
+
+### Fixed organ dictionary (case-independent)
+
+| Artifact | Path |
+|----------|------|
+| Catalog (TS task → organ names) | `image_processor/utils/totalsegmentator_organs.py` |
+| Factory | `OrganDictionary.from_hn_canonical(...)` |
+| Committed JSON template | `image_processor/resources/organ_dictionary_hn_canonical.json` |
+| Colab working copy | `WORK_DIR/audit_organ_dictionary.json` |
+
+Layout: `background=0`, `anatomical_region=1`, `other-tissue=2`, then **88** unique H&N TS organs (6 tasks), then `GTVp`, `GTVn`.  
+Cross-task duplicate basenames (`optic_nerve_*`, `skull`) share **one** index.
+
+**Do not** grow the dict from case discovery order for new audits — load the canonical file first.
+
+### Stable colours (`label_colors.py`)
+
+- **GTVp = red**, **GTVn = pink**
+- TS organs: fixed palette that **never** uses those hues
+- Helpers: `rgba_by_name`, `rgba_by_index`, `paint_label_rgba`
+
+### Notebook flow
+
+1. **C1** — load/create canonical dict + colour maps  
+2. **C2** — `TotalSegmentatorWrapper.run_tasks` on QC-kept cases  
+3. **D1** — `MaskGenerator` combine (prefer Step B improved bg) → other-tissue → separate GTVp/GTVn  
+4. **D2** — other-tissue fill summary  
+5. **E** — 3 columns: CT | CT+organs | CT+organs+tumors  
+
+### Still open
+
+- Production `MaskGenerator.generate_background_array` still uses `head_mask_from_array`
+- Optional: make `add_organ` strict when a canonical dict is loaded
+- DatasetXXX rebuild / Dice check after approving C–E visuals
+
+---
+
 ## Colab ops (easy to lose)
 
 - Repo: `github.com/xiscapericas/my_tailors_drawer` → `psyduck-doing-phd/radcure-medical-imaging`.
-- `pip install -e <absolute REPO_ROOT>`; pin **`numpy==2.0.2` last**; **no TotalSegmentator** until Step C.
+- `pip install -e <absolute REPO_ROOT>`; pin **`numpy==2.0.2` last**; install **`totalsegmentator`** only for Step C (then restart).
 - After pull: reinstall + **clear `sys.modules`** for `image_processor*`; B1 asserts `z_radius` + `flip_axis`/`flipud` in source.
 - Drive copy of notebook goes stale — re-copy or pull from git.
 
@@ -96,17 +136,16 @@ API knobs: `enforce_symmetry`, `sagittal_flip_axis=0`, `enforce_continuity`, `mi
 
 ## Production gap (do not forget)
 
-`MaskGenerator` still calls **`head_mask_from_array`** only. Improved masks live in research notebook + library helpers; **wiring into CaseProcessor is a later decision** after Step C+ validation.
+`MaskGenerator` still calls **`head_mask_from_array`** only. Improved masks live in research notebook + library helpers; **wiring into CaseProcessor is a later decision** after Step C–E visual QA.
 
 ---
 
-## Next session — suggested phase order
+## Next after C–E QA
 
-1. **Step C** — TotalSegmentator on kept cases; organ overlays; stable **name→colour** map (not label index).
-2. **`other-tissue`** — leftover anatomical voxels after organs; check air/table no longer inflate it.
-3. Decide whether to **replace** production background with `anatomical_region_masks_from_slices` (or hybrid).
+1. Confirm other-tissue is not FOV/table air on audit cases.
+2. Decide whether to replace production background with `anatomical_region_masks_from_slices`.
+3. Point production `ORGAN_DICTIONARY_PATH` at the canonical JSON (or a copy).
 4. Rebuild a small DatasetXXX slice and re-check GTVp Dice vs old preprocess.
-5. Optional: unit tests for `flip_axis=0` vs `1` and fill-cap behaviour.
 
 ---
 
@@ -114,5 +153,6 @@ API knobs: `enforce_symmetry`, `sagittal_flip_axis=0`, `enforce_continuity`, `mi
 
 - Continuity + symmetry experiments → axis fix (`Fix axis` and predecessors on `main`).
 - Anatomy QC logging / thresholds.
+- Canonical H&N organ dictionary + Steps C–E notebook cells.
 
-When extending, prefer **minimal** changes to `image_processing.py` / notebook cells over parallel implementations.
+When extending, prefer **minimal** changes to existing modules / notebook cells over parallel implementations.

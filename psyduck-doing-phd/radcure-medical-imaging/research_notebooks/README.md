@@ -8,7 +8,7 @@ Exploratory work: notebooks, analysis reports, and paper drafts. Pipeline orches
 
 | Notebook | Purpose |
 |----------|---------|
-| [`preprocessing_pipeline_review/`](preprocessing_pipeline_review/) | **Colab:** preprocess review; Step B sweet spot; see [`FINDINGS.md`](preprocessing_pipeline_review/FINDINGS.md) (next: Step C) |
+| [`preprocessing_pipeline_review/`](preprocessing_pipeline_review/) | **Colab:** Steps A–E (bg + TS + fixed organ dict + tumor viz); [`FINDINGS.md`](preprocessing_pipeline_review/FINDINGS.md) |
 | `compare_dice_surface_dice.ipynb` | DICE vs Surface DICE comparison |
 | `background_head_organs_debug.ipynb` | Background / head / organs mask pipeline debug |
 | `hecktor_explore_colab.ipynb` | HECKTOR case load + overlay (Colab) |

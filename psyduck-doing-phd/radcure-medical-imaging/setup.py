@@ -11,6 +11,9 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages=find_packages(),
+    package_data={
+        "image_processor": ["resources/*.json"],
+    },
     python_requires='>=3.7',
     entry_points={
         'console_scripts': [

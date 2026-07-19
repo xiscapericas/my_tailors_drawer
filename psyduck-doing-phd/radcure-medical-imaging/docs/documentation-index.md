@@ -85,7 +85,8 @@ Single map of **all** docs. Each topic has **one canonical file** — others lin
 | [retrain_epoch_study/retrain_epoch_study.md](../research_notebooks/retrain_epoch_study/retrain_epoch_study.md) | **Paper draft** — Test1–3 narrative + figures |
 | [research_notebooks/README.md](../research_notebooks/README.md) | Notebook index |
 | [preprocessing_pipeline_review/](../research_notebooks/preprocessing_pipeline_review/) | Colab audit: preprocess top→bottom (bg / other-tissue / viz) |
-| [FINDINGS.md](../research_notebooks/preprocessing_pipeline_review/FINDINGS.md) | **Handoff** — Step A/B learnings, sagittal symmetry fix, next = Step C |
+| [FINDINGS.md](../research_notebooks/preprocessing_pipeline_review/FINDINGS.md) | **Handoff** — Steps A–E; canonical organ dict; next = production wiring / Dice |
+| [organ_dictionary_hn_canonical.json](../image_processor/resources/organ_dictionary_hn_canonical.json) | Fixed H&N labels: TS organs + GTVp/GTVn (case-independent) |
 | [Surface_Dice_Analysis_Report.md](../research_notebooks/Surface_Dice_Analysis_Report.md) | Metric exploration notes |
 
 ---

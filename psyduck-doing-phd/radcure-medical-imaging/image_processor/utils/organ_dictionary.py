@@ -2,7 +2,12 @@
 
 import json
 import os
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
+
+from image_processor.utils.totalsegmentator_organs import (
+    DEFAULT_HN_TASKS,
+    build_canonical_hn_dictionary,
+)
 
 
 class OrganDictionary:
@@ -31,6 +36,35 @@ class OrganDictionary:
             }
             if dictionary_path:
                 print(f"Dictionary file not found, starting with default")
+
+    @classmethod
+    def from_hn_canonical(
+        cls,
+        dictionary_path: Optional[str] = None,
+        *,
+        separate_gtvp_gtvn: bool = True,
+        tasks: Tuple[str, ...] = DEFAULT_HN_TASKS,
+        save: bool = True,
+    ) -> "OrganDictionary":
+        """
+        Build a **case-independent** dictionary covering all H&N TotalSegmentator
+        organs used in this project, plus GTVp / GTVn.
+
+        If ``dictionary_path`` already exists, load it (so indices stay frozen).
+        Otherwise create from the canonical catalog and optionally save.
+        """
+        if dictionary_path and os.path.exists(dictionary_path):
+            return cls(dictionary_path)
+
+        obj = cls(dictionary_path=None)
+        obj.dictionary = build_canonical_hn_dictionary(
+            separate_gtvp_gtvn=separate_gtvp_gtvn,
+            tasks=tasks,
+        )
+        obj.dictionary_path = dictionary_path
+        if save and dictionary_path:
+            obj.save(dictionary_path)
+        return obj
     
     def get(self, organ_name: str) -> Optional[int]:
         """
@@ -111,6 +145,9 @@ class OrganDictionary:
         """
         save_path = path or self.dictionary_path
         if save_path:
+            parent = os.path.dirname(save_path)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
             with open(save_path, 'w') as f:
                 json.dump(self.dictionary, f, indent=4)
             print(f"Dictionary saved to: {save_path}")
@@ -137,4 +174,3 @@ class OrganDictionary:
     def copy(self) -> Dict[str, int]:
         """Return a copy of the dictionary."""
         return self.dictionary.copy()
-
