@@ -47,7 +47,6 @@ from pipelines.test4.build_dataset650 import (
     _build_hecktor_stem_map,
     _copy_radcure_relabel,
     _list_split_images,
-    _load_reference_manifest,
     _radcure_case_id_from_stem,
 )
 
@@ -55,6 +54,52 @@ from pipelines.test4.build_dataset650 import (
 def _hecktor_stem(case_id: str) -> str:
     return f"case_{get_nnunet_case_number(case_id, HECKTOR)}"
 
+
+def _resolve_reference_dataset650(reference_dataset650: Path) -> Tuple[Path, dict]:
+    """
+    Load split_manifest from the reference Dataset650.
+
+    Test4's own Dataset650 sometimes lacks ``split_manifest.json``. Prefer a path
+    that has the manifest (Test2/Test3 Dataset650). If the given folder has
+    images{Tr,Va,Ts} but no manifest, try ``RADHECK_DATASET`` / common Test1 path.
+    """
+    candidates: List[Path] = [reference_dataset650]
+    env_radheck = os.getenv("RADHECK_DATASET", "").strip()
+    if env_radheck:
+        candidates.append(Path(env_radheck))
+    # Common cluster layout from Test2/Test3 / Test4 runbooks
+    candidates.append(
+        Path("/media/HDD_8TB/xisca/work/nnunet_radheck_test_1/Dataset650_TotalSegmentator")
+    )
+
+    tried = []
+    for cand in candidates:
+        if not cand:
+            continue
+        cand = cand.resolve() if cand.exists() else cand
+        man = cand / "split_manifest.json"
+        tried.append(str(cand))
+        if man.is_file():
+            with open(man) as f:
+                manifest = json.load(f)
+            if cand != reference_dataset650.resolve() and reference_dataset650.exists():
+                print(
+                    f"NOTE: {reference_dataset650}/split_manifest.json missing.\n"
+                    f"      Using reference with manifest: {cand}"
+                )
+            return cand, manifest
+
+    raise FileNotFoundError(
+        "split_manifest.json not found.\n"
+        f"  Tried:\n    - "
+        + "\n    - ".join(tried)
+        + "\n\n"
+        "Fix — point at Test2/Test3 Dataset650 (has the manifest + Tr/Va/Ts lists):\n"
+        "  export TEST5_REFERENCE_DATASET650="
+        "/media/HDD_8TB/xisca/work/nnunet_radheck_test_1/Dataset650_TotalSegmentator\n"
+        "  python -m pipelines.test5.build_dataset650\n\n"
+        "Do not use retrain_test4/Dataset650 unless it contains split_manifest.json."
+    )
 
 def _load_qc_discarded_case_ids(work_root: Path) -> Set[str]:
     """Case IDs discarded by anatomy QC (from JSONL and/or CSV)."""
@@ -106,7 +151,7 @@ def build_dataset650(
     dataset_id: str = "650",
     dry_run: bool = False,
 ) -> Path:
-    manifest = _load_reference_manifest(reference_dataset650)
+    reference_dataset650, manifest = _resolve_reference_dataset650(reference_dataset650)
     hecktor_by_stem = _build_hecktor_stem_map(manifest)
     discarded_ids = _load_qc_discarded_case_ids(work_root)
     discarded_stems = _discarded_stems(discarded_ids, hecktor_by_stem)
@@ -242,8 +287,9 @@ def main() -> None:
             os.getenv("TEST4_REFERENCE_DATASET650", os.getenv("RADHECK_DATASET", "")),
         ),
         help=(
-            "Reference Dataset650 with Test4/Test3 splits "
-            "(prefer Test4 Dataset650; env: TEST5_REFERENCE_DATASET650)"
+            "Dataset650 with split_manifest.json + images{Tr,Va,Ts} "
+            "(Test2/Test3 path; env: TEST5_REFERENCE_DATASET650). "
+            "Not retrain_test4 unless that folder has the manifest."
         ),
     )
     parser.add_argument(

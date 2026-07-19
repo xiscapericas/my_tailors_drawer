@@ -17,8 +17,9 @@ source .venv/bin/activate
 set -a && source .env && set +a
 
 export TEST5_WORK_ROOT=/media/HDD_8TB/xisca/work/retrain_test5
-# Prefer Test4 Dataset650 so Tr/Va/Ts match Test4 exactly before QC filtering:
-export TEST5_REFERENCE_DATASET650=/media/HDD_8TB/xisca/work/retrain_test4/Dataset650_TotalSegmentator
+# Prefer Test2/Test3 Dataset650 (has split_manifest.json). Test4's Dataset650
+# often lacks the manifest — do not use it as reference unless the file exists:
+export TEST5_REFERENCE_DATASET650=/media/HDD_8TB/xisca/work/nnunet_radheck_test_1/Dataset650_TotalSegmentator
 # Same sources as Test4 Phase 2:
 export TEST5_RADCURE_SOURCE_MAIN_PATH=/media/HDD_8TB/xisca/dataset/RadcureComplete
 export TEST5_HECKTOR_SOURCE_CASES_ROOT=/media/HDD_8TB/xisca/dataset/hecktor/.../cases
