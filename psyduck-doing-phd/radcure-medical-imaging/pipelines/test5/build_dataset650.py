@@ -150,6 +150,8 @@ def build_dataset650(
     organ_dictionary_path: Path,
     dataset_id: str = "650",
     dry_run: bool = False,
+    hecktor_output_root: Optional[Path] = None,
+    skip_missing: bool = False,
 ) -> Path:
     reference_dataset650, manifest = _resolve_reference_dataset650(reference_dataset650)
     hecktor_by_stem = _build_hecktor_stem_map(manifest)
@@ -157,9 +159,32 @@ def build_dataset650(
     discarded_stems = _discarded_stems(discarded_ids, hecktor_by_stem)
 
     radcure_retrain = work_root / "TotalSegmentatorRetrain"
-    hecktor_root = work_root / "hecktor"
+    hecktor_root = Path(hecktor_output_root) if hecktor_output_root else (work_root / "hecktor")
     dataset_name = f"Dataset{dataset_id}_TotalSegmentator"
     dataset_folder = work_root / dataset_name
+
+    n_hecktor_ready = sum(
+        1
+        for p in hecktor_root.glob("*/output/image")
+        if p.is_dir() and any(p.glob("*.nii.gz"))
+    )
+    n_radcure_ready = sum(
+        1
+        for p in radcure_retrain.glob("*/output/image")
+        if p.is_dir() and any(p.glob("*.nii.gz"))
+    )
+    print(f"Relabel outputs ready: RADCURE={n_radcure_ready}  HECKTOR={n_hecktor_ready}")
+    print(f"  RADCURE root: {radcure_retrain}")
+    print(f"  HECKTOR root: {hecktor_root}")
+    if n_hecktor_ready == 0:
+        print(
+            "\nWARNING: no HECKTOR relabel outputs under Test5.\n"
+            "  Phase 2 likely skipped HECKTOR or used the wrong source path.\n"
+            "  Fix:\n"
+            "    export TEST5_HECKTOR_SOURCE_CASES_ROOT=<same path as Test4 Phase 2>\n"
+            "    python -m pipelines.test5.relabel_tumor_batch --skip-radcure\n"
+            "  Then re-run build_dataset650.\n"
+        )
 
     if dataset_folder.is_dir() and not dry_run:
         print(f"Removing existing {dataset_folder}")
@@ -168,6 +193,8 @@ def build_dataset650(
     counts = {"Tr": 0, "Va": 0, "Ts": 0}
     skipped_qc: List[str] = []
     missing: List[str] = []
+    missing_hecktor = 0
+    missing_radcure = 0
 
     print(f"QC discarded case IDs: {len(discarded_ids)}")
     if discarded_ids:
@@ -213,15 +240,41 @@ def build_dataset650(
                         str(dst_lbl),
                     )
                 counts[split] += 1
-            except FileNotFoundError as exc:
-                # Relabel may have QC-discarded without writing JSONL keep lines only
-                missing.append(f"{split}/{stem}: {exc}")
+            except (FileNotFoundError, OSError) as exc:
+                kind = "HECKTOR" if stem in hecktor_by_stem else "RADCURE"
+                if kind == "HECKTOR":
+                    missing_hecktor += 1
+                    cid = hecktor_by_stem[stem]
+                    missing.append(f"{split}/{stem} ({cid}): {exc}")
+                else:
+                    missing_radcure += 1
+                    missing.append(f"{split}/{stem}: {exc}")
 
-    if missing:
+    if missing and not skip_missing:
+        test4_hint = os.getenv("TEST4_WORK_ROOT", "/media/HDD_8TB/xisca/work/retrain_test4")
         raise RuntimeError(
             f"{len(missing)} case(s) missing Test5 relabeled output "
-            f"(not listed as QC discard). First 10:\n"
+            f"(HECKTOR={missing_hecktor}, RADCURE={missing_radcure}; "
+            f"not listed as QC discard).\n"
+            f"First 10:\n"
             + "\n".join(missing[:10])
+            + "\n\n"
+            "Most common cause: Phase 2 did not relabel HECKTOR into "
+            f"{hecktor_root}.\n"
+            "Fix (use the same HECKTOR source as Test4 — folders with "
+            "total_segmentator_output/):\n"
+            "  export TEST5_HECKTOR_SOURCE_CASES_ROOT=...\n"
+            "  python -m pipelines.test5.relabel_tumor_batch --skip-radcure\n"
+            "  python -m pipelines.test5.build_dataset650\n\n"
+            f"Check Test4 has outputs: ls {test4_hint}/hecktor/*/output/image | head\n"
+            "Optional: re-run build with --skip-missing to drop these stems "
+            "(shrinks the dataset; not ideal for a fair Test4 comparison)."
+        )
+
+    if missing and skip_missing:
+        print(
+            f"\nWARNING: --skip-missing: dropping {len(missing)} stems "
+            f"(HECKTOR={missing_hecktor}, RADCURE={missing_radcure})"
         )
 
     if dry_run:
@@ -230,6 +283,8 @@ def build_dataset650(
         return dataset_folder
 
     print(f"\nSkipped (QC): {len(skipped_qc)}")
+    if missing and skip_missing:
+        print(f"Skipped (missing): {len(missing)}")
     audit = audit_split_overlaps(str(dataset_folder))
     if any(audit["overlaps"][k] for k in audit["overlaps"]):
         print("WARNING: split overlaps detected:")
@@ -254,8 +309,10 @@ def build_dataset650(
         "label_source": (
             "Test5 Phase 2: improved bg + anatomy QC + separate GTVp/GTVn"
         ),
+        "hecktor_output_root": str(hecktor_root),
         "anatomy_qc_discarded_case_ids": sorted(discarded_ids),
         "anatomy_qc_skipped_stems": skipped_qc,
+        "missing_skipped": missing if skip_missing else [],
         "counts_built": counts,
         "background_mode": "improved",
     }
@@ -299,13 +356,23 @@ def main() -> None:
     )
     parser.add_argument("--dataset-id", default="650")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--hecktor-output-root",
+        default=os.getenv("TEST5_HECKTOR_OUTPUT_ROOT", ""),
+        help="Where Phase 2 wrote HECKTOR output/ (default: {work-root}/hecktor)",
+    )
+    parser.add_argument(
+        "--skip-missing",
+        action="store_true",
+        help="Drop reference stems with no Test5 relabel (shrinks dataset; last resort)",
+    )
     args = parser.parse_args()
 
     work_root = Path(args.work_root).resolve()
     if not args.reference_dataset650:
         print(
             "ERROR: set --reference-dataset650 or TEST5_REFERENCE_DATASET650 "
-            "(prefer Test4 Dataset650 for identical Tr/Va/Ts)"
+            "(Test2/Test3 Dataset650 with split_manifest.json)"
         )
         sys.exit(1)
 
@@ -318,6 +385,12 @@ def main() -> None:
         raise FileNotFoundError(f"Reference dataset not found: {reference}")
     if not organ_dict.is_file():
         raise FileNotFoundError(f"Organ dictionary not found: {organ_dict}")
+
+    hecktor_out = (
+        Path(args.hecktor_output_root).resolve()
+        if args.hecktor_output_root
+        else None
+    )
 
     print("=" * 70)
     print("Test5 Phase 3 — build Dataset650 (Test4 splits − QC discards)")
@@ -332,6 +405,8 @@ def main() -> None:
         organ_dictionary_path=organ_dict,
         dataset_id=str(args.dataset_id),
         dry_run=args.dry_run,
+        hecktor_output_root=hecktor_out,
+        skip_missing=bool(args.skip_missing),
     )
 
 
