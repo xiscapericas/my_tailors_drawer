@@ -7,7 +7,7 @@ plus:
 
 - Canonical H&N organ dictionary (case-independent indices)
 - ``background_mode=improved`` (FOV body mask + L/R symmetry + Z continuity)
-- Anatomy QC threshold (default 0.70): discard non-human / wrong FOV
+- Anatomy QC threshold (default 0.50): discard only clear non-human / empty FOV
 
 Outputs under ``--work-root`` (default ``work/retrain_test5``):
 
@@ -60,7 +60,9 @@ from image_processor.core.mask_generator import MaskGenerator
 from image_processor.utils.anatomy_qc import append_qc_log, write_discard_summary_csv
 from image_processor.utils.organ_dictionary import OrganDictionary
 
-DEFAULT_ANATOMY_QC_THRESHOLD = 0.70
+# Soft keep threshold: hard-fail still catches empty/non-human FOVs.
+# 0.70 was too aggressive with legacy head-mask fill (mass HECKTOR discards).
+DEFAULT_ANATOMY_QC_THRESHOLD = 0.50
 CANONICAL_DICT_TEMPLATE = (
     _REPO_ROOT
     / "image_processor"

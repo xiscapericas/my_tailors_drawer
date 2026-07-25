@@ -33,17 +33,22 @@ def score_human_anatomy(
     *,
     min_gtvp_voxels: int = 20,
     weights: Optional[Dict[str, float]] = None,
-    fill_low: float = 0.075,
-    fill_high: float = 0.55,
-    fill_soft: float = 0.02,
-    hard_fail_fill_below: float = 0.065,
+    fill_low: float = 0.05,
+    fill_high: float = 0.60,
+    fill_soft: float = 0.04,
+    hard_fail_fill_below: float = 0.025,
+    use_improved_body_mask: bool = True,
 ) -> Dict[str, Any]:
     """
     Score likelihood that a volume crop is usable human H&N anatomy.
 
     Empirically (audit set): non-human FOVs had mean_patient_fill ≈ 0.04–0.06
-    while usable cases were ≥ ≈ 0.07. Tumor voxels alone are a weak signal
-    (labels can exist on non-anatomy), so fill / coherence dominate.
+    with the *legacy* head mask; usable cases were higher. Tumor voxels alone
+    are a weak signal, so fill / coherence dominate.
+
+    Fill is measured with ``body_mask_from_intensity`` by default (same family
+    as the improved preprocess). The legacy ``head_mask_from_array`` under-
+    estimates body and caused mass false discards in Test5.
 
     Hard fail: if ``mean_patient_fill < hard_fail_fill_below``, score is capped
     and ``hard_fail`` is set so thresholding can discard regardless of tumor.
@@ -99,7 +104,15 @@ def score_human_anatomy(
     tumor_total = 0
 
     for z in sample_idx:
-        bg = ImageProcessor.head_mask_from_array(ct[:, :, z])
+        if use_improved_body_mask:
+            # True = background (same convention as head_mask_from_array)
+            bg = ImageProcessor.body_mask_from_intensity(
+                ct[:, :, z],
+                enforce_symmetry=False,
+                min_area=800,
+            )
+        else:
+            bg = ImageProcessor.head_mask_from_array(ct[:, :, z])
         patient = ~bg
         fill_fracs.append(float(np.mean(patient)))
 

@@ -204,7 +204,7 @@ experiments:
       dataset_id: 650
       tumor_label_mode: separate
       background_mode: improved
-      anatomy_qc_threshold: 0.70
+      anatomy_qc_threshold: 0.50
       trainer: nnUNetTrainer_700epochs_NoMirroring
       epochs: 700
       configuration: 3d_fullres

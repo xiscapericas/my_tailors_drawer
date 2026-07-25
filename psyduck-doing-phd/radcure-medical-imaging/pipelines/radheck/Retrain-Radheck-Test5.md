@@ -38,11 +38,17 @@ Also set in `experiments/configs/local.yaml`:
 ## Step 1 — Phase 2: relabel (improved bg + QC)
 
 Reuses `total_segmentator_output/`. Seeds canonical organ dict. Applies anatomy QC
-(threshold **0.70**). Background = **improved**.
+(threshold **0.50**; fill measured with improved body mask). Background = **improved**.
+
+If a previous run discarded too many cases (legacy fill / threshold 0.70), clear old
+QC logs and re-run Phase 2 with `--force` (or `--skip-anatomy-qc` to disable).
 
 ```bash
 python -m pipelines.test5.relabel_tumor_batch --dry-run
-python -m pipelines.test5.relabel_tumor_batch
+# Re-run after softening QC (overwrites skipped QC discards):
+rm -f ${TEST5_WORK_ROOT}/logs/anatomy_qc/anatomy_qc_decisions.jsonl
+rm -f ${TEST5_WORK_ROOT}/anatomy_qc_discarded.csv
+python -m pipelines.test5.relabel_tumor_batch --force --anatomy-qc-threshold 0.50
 ```
 
 Outputs:
