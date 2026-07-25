@@ -233,11 +233,33 @@ experiments:
         (Test4/Test3 Tr/Va/Ts minus QC discards).
       Train: same 700-epoch NoMirroring trainer as Test4; do not reuse preprocess.
 
+  test6:
+    id: test6
+    name: STU-Net inference explore (research)
+    status: planned
+    config_file: configs/test6_stunet_inference_explore.yaml
+    changed_from: test5
+    hypothesis: >
+      STU-Net pretrained on TotalSegmentator may provide stronger organ segmentation
+      priors; explore inference on RADCURE/HECKTOR samples before any fine-tune.
+      Pretrained model has no GTVp/GTVn — tumor Dice deferred.
+    training:
+      cohorts: [radcure, hecktor]
+      model: STU-Net-S
+      pretrained_on: TotalSegmentator
+      research_only: true
+      research_notebook: research_notebooks/test6_stunet/test6_stunet_inference_explore.ipynb
+    evaluation:
+      metrics: [matched organ Dice, qualitative viz]
+    results:
+      primary_metric: matched_organ_Dice
+      notes: Research scaffold — inference notebook, not full train yet.
+
 # ---------------------------------------------------------------------------
 # Next experiment — naming rules (see experiments/README.md § Naming convention)
 # ---------------------------------------------------------------------------
 #
-# Before Test6+:
+# Before Test7+:
 #   1. "Test{N} changes ___ compared to {changed_from}; everything else is identical."
 #   2. configs/test{N}_{cohort}_{variable}.yaml
 #   3. local.yaml: RETRAIN_RADHECK_TEST{N} → .../nnunet_radheck_test_{N}_retrain
