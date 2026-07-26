@@ -3,6 +3,8 @@
 # One-line rule: Test6 explores STU-Net (TotalSegmentator-pretrained scalable
 # nnU-Net) as an organ foundation model compared to our RADHECK nnUNet pipeline;
 # no full Dataset650 retrain until fine-tuning is decided.
+#
+# Notebook flow: AWS download → Test5 CaseProcessor preprocess → STU-Net predict → Dice.
 
 experiment:
   id: test6
@@ -12,7 +14,8 @@ experiment:
   hypothesis: >
     A large STU-Net pretrained on TotalSegmentator may provide stronger organ
     priors for H&N CT than our current TS → nnUNet stack. First check organ
-    quality via direct inference; tumor (GTVp/GTVn) requires later fine-tuning.
+    quality via direct inference on Test5-preprocessed AWS cases; tumor
+    (GTVp/GTVn) requires later fine-tuning.
 
 training:
   needs_dataset_build: false
@@ -25,12 +28,17 @@ training:
   pretrained_on: TotalSegmentator (104 classes)
   tumor_label_mode: n/a  # pretrained STU-Net has no GTVp/GTVn
 
+  preprocess:
+    source: aws_download
+    pipeline: test5  # separate GTVp/GTVn, improved bg, anatomy_qc=0.50, canonical dict
+    via: CaseProcessor
+
   research_notebook: research_notebooks/test6_stunet/test6_stunet_inference_explore.ipynb
   work_root: ${TEST6_WORK_ROOT}
 
 evaluation:
   metrics:
-    - organ Dice (name-matched vs our GT labels)
+    - organ Dice (name-matched vs our GT labels from Test5 preprocess)
     - qualitative viz (CT / STU organs / GT+tumor)
   tumor_dice: deferred_until_finetune
 

@@ -25,8 +25,10 @@ RETRAIN_RADHECK_TEST3: /path/to/work/nnunet_radheck_test_3_retrain
 # TEST5_HECKTOR_SOURCE_CASES_ROOT: /path/to/hecktor/cases
 
 # TEST6_WORK_ROOT: /path/to/work/research_test6_stunet
-# TEST6_RADCURE_IMAGE: /path/to/Dataset650_TotalSegmentator/imagesTs/case_0122_0000.nii.gz
-# TEST6_HECKTOR_IMAGE: /path/to/Dataset152_TotalSegmentator/imagesTs
+# TEST6_STU_VARIANT: small   # small | base | large | huge
+# TEST6_ANATOMY_QC: 0.50
+# RADCURE_REPO: /path/to/radcure-medical-imaging
+# (AWS_* + HECKTOR_S3_URI used by the Test6 notebook for download)
 
 ORGAN_DICTIONARY_PATH: /path/to/radcure_dictionary.json
 NNUNET_PATH: /path/to/nnUNet
