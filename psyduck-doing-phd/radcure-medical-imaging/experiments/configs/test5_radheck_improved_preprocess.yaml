@@ -29,6 +29,14 @@ training:
   background_mode: improved
   anatomy_qc_threshold: 0.50
 
+  # Original sources (read-only). Outputs only under TEST5_WORK_ROOT.
+  sources:
+    radcure: ${TEST5_RADCURE_SOURCE}  # …/RadcureComplete/TotalSegmentatorRetrain
+    hecktor: ${TEST5_HECKTOR_SOURCE_CASES_ROOT}  # …/hecktor/test1/unzipped/test1
+  memory:
+    hecktor_cleanup_intermediates: true
+    dataset_link_mode: hardlink  # Phase 3 — avoid duplicating NIfTIs on disk
+
   trainer: nnUNetTrainer_700epochs_NoMirroring
   configuration: 3d_fullres
   fold: 0

@@ -5,11 +5,22 @@ anatomy QC + canonical organ dictionary) compared to Test4; everything else
 (separate GTVp/GTVn, 700 epochs, NoMirroring, Dataset650, same Tr/Va/Ts family)
 is identical, except QC-discarded cases are dropped from the splits.
 
-**Prerequisite:** Existing TotalSegmentator outputs on disk (same sources as Test4).
+**Original sources (do not write into these trees):**
+
+| Cohort | Path |
+|--------|------|
+| RADCURE | `/media/HDD_8TB/xisca/dataset/RadcureComplete/TotalSegmentatorRetrain/` |
+| HECKTOR | `/media/HDD_8TB/xisca/dataset/hecktor/test1/unzipped/test1/` |
+
+Outputs go only under `TEST5_WORK_ROOT` (relabel / full process + Dataset650).
+
+**Memory / disk:** Phase 2 cleans HECKTOR TS intermediates; Phase 3 defaults to
+**hardlinks** into Dataset650. Prefer a fresh empty `TEST5_WORK_ROOT` after
+deleting old work trees.
 
 ---
 
-## Step 0 — Paths
+## Step 0 — Paths (reset)
 
 ```bash
 cd /path/to/radcure-medical-imaging
@@ -17,38 +28,54 @@ source .venv/bin/activate
 set -a && source .env && set +a
 
 export TEST5_WORK_ROOT=/media/HDD_8TB/xisca/work/retrain_test5
-# Prefer Test2/Test3 Dataset650 (has split_manifest.json). Test4's Dataset650
-# often lacks the manifest — do not use it as reference unless the file exists:
+mkdir -p "$TEST5_WORK_ROOT"
+
+# Splits reference (needs split_manifest.json) — keep this; do not delete
 export TEST5_REFERENCE_DATASET650=/media/HDD_8TB/xisca/work/nnunet_radheck_test_1/Dataset650_TotalSegmentator
-# Same sources as Test4 Phase 2:
-export TEST5_RADCURE_SOURCE_MAIN_PATH=/media/HDD_8TB/xisca/dataset/RadcureComplete
-export TEST5_HECKTOR_SOURCE_CASES_ROOT=/media/HDD_8TB/xisca/dataset/hecktor/.../cases
+
+# Original sources (read-only)
+export TEST5_RADCURE_SOURCE=/media/HDD_8TB/xisca/dataset/RadcureComplete/TotalSegmentatorRetrain
+export TEST5_HECKTOR_SOURCE_CASES_ROOT=/media/HDD_8TB/xisca/dataset/hecktor/test1/unzipped/test1
 
 export ORGAN_DICTIONARY_PATH=${TEST5_WORK_ROOT}/radcure_dictionary_test5.json
+
+# Low-memory HECKTOR full process (if raw cases have no total_segmentator_output/)
+export HECKTOR_CLEANUP_INTERMEDIATES=1
+export HECKTOR_TS_NR_THR_SAVING=1
 ```
 
 Also set in `experiments/configs/local.yaml`:
 
-- `RETRAIN_RADHECK_TEST5`
-- `RADHECK_DATASET_TEST5`
+- `RETRAIN_RADHECK_TEST5` → `${TEST5_WORK_ROOT}/nnunet_retrain`
+- `RADHECK_DATASET_TEST5` → `${TEST5_WORK_ROOT}/Dataset650_TotalSegmentator`
 - `TEST5_WORK_ROOT` / `TEST5_REFERENCE_DATASET650`
+- `TEST5_RADCURE_SOURCE` / `TEST5_HECKTOR_SOURCE_CASES_ROOT`
+
+Optional aliases still accepted: `TEST5_RADCURE_SOURCE_MAIN_PATH` (parent
+`RadcureComplete` **or** the `TotalSegmentatorRetrain` folder).
 
 ---
 
-## Step 1 — Phase 2: relabel (improved bg + QC)
+## Step 1 — Phase 2: transform sources
 
-Reuses `total_segmentator_output/`. Seeds canonical organ dict. Applies anatomy QC
-(threshold **0.50**; fill measured with improved body mask). Background = **improved**.
-
-If a previous run discarded too many cases (legacy fill / threshold 0.70), clear old
-QC logs and re-run Phase 2 with `--force` (or `--skip-anatomy-qc` to disable).
+- **RADCURE:** relabel from existing `total_segmentator_output/` (no TS re-run)
+- **HECKTOR:** relabel if TS exists; otherwise stage CT+mask into work root and
+  run full TotalSegmentator + improved bg (intermediates deleted after each case)
 
 ```bash
 python -m pipelines.test5.relabel_tumor_batch --dry-run
-# Re-run after softening QC (overwrites skipped QC discards):
+
+# Fresh QC logs if restarting after a bad run:
 rm -f ${TEST5_WORK_ROOT}/logs/anatomy_qc/anatomy_qc_decisions.jsonl
 rm -f ${TEST5_WORK_ROOT}/anatomy_qc_discarded.csv
+
 python -m pipelines.test5.relabel_tumor_batch --force --anatomy-qc-threshold 0.50
+```
+
+Smoke-test a few cases first:
+
+```bash
+python -m pipelines.test5.relabel_tumor_batch --max-cases 2
 ```
 
 Outputs:
@@ -63,17 +90,21 @@ Outputs:
 
 ## Step 2 — Phase 3: build Dataset650
 
-Same reference Tr/Va/Ts as Test4, **minus** QC discards.
+Same reference Tr/Va/Ts as Test2/3, **minus** QC discards. Default `--link`
+hardlinks files (falls back to copy if cross-device) to save disk.
 
 ```bash
 python -m pipelines.test5.build_dataset650 --dry-run
-python -m pipelines.test5.build_dataset650
+python -m pipelines.test5.build_dataset650 --link hardlink
 ```
+
+If some HECKTOR stems are not transformed yet, they fall back to the **reference**
+Dataset650 labels (not improved bg). Finish Phase 2 for those cases, then rebuild.
 
 Output: `${TEST5_WORK_ROOT}/Dataset650_TotalSegmentator/`
 
 Verify `dataset.json` contains **GTVp** and **GTVn**. Check `split_manifest.json`
-for `anatomy_qc_discarded_case_ids` and `counts_built`.
+for `anatomy_qc_discarded_case_ids`, `copy_source_counts`, and `counts_built`.
 
 ---
 
@@ -87,7 +118,7 @@ python -m nnunet_training.install_trainer_variants
 
 ## Step 4 — Prepare, plan, train
 
-**Do not** reuse Test4 preprocess (new bg + possibly different label indices).
+**Do not** reuse Test4 preprocess (deleted / different labels).
 
 ```bash
 export DATASET_FOLDER=${TEST5_WORK_ROOT}/Dataset650_TotalSegmentator
@@ -108,10 +139,10 @@ python train_nnunet.py --step plan
 python train_nnunet.py --step train
 ```
 
-Optional — same fold assignment as Test3/Test4:
+Optional — same fold assignment as Test3:
 
 ```bash
-export NNUNET_SPLITS_REFERENCE=/path/to/nnunet_radheck_test_1_retrain/nnUNet_preprocessed
+export NNUNET_SPLITS_REFERENCE=/media/HDD_8TB/xisca/work/nnunet_radheck_test_1_retrain/nnUNet_preprocessed
 ```
 
 ---
@@ -127,13 +158,9 @@ python train_nnunet.py --step evaluate
 python train_nnunet.py --step evaluation_visualization
 ```
 
-Compare **GTVp Dice** (and GTVn) to Test4 on the overlapping Ts cases.
-
 ---
 
 ## Step 6 — Evaluate HECKTOR test (Dataset152)
-
-Same as Test4: model 650 on held-out HECKTOR test set.
 
 ```bash
 export DATASET_ID=650

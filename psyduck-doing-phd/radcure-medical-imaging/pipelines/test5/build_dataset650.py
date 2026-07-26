@@ -1,27 +1,27 @@
 #!/usr/bin/env python3
 """
-Test5 Phase 3 — build Dataset650 from improved-preprocess relabels.
+Test5 Phase 3 — build Dataset650 from improved-preprocess transforms.
 
 Uses the **same Tr/Va/Ts membership** as Test2/Test3 (reference Dataset650),
-drops anatomy-QC discards, and copies labels with this preference:
+drops anatomy-QC discards, and prefers Test5 work-root outputs.
 
-1. Test5 Phase 2 relabel (improved bg) — preferred
-2. Test4 Phase 2 relabel (separate GTV, old bg)
-3. Test4 Dataset650 (if present)
-4. Reference Dataset650 (Test2/Test3 labels) — last resort
+Copy mode default is **hardlink** (falls back to copy cross-device) to save disk
+when the previous work trees were deleted for space.
 
-Test4/Test5 often only have ~11 HECKTOR cases in ``work/*/hecktor``; the
-reference split expects many more. Fallbacks keep split membership intact;
-``split_manifest.json`` records ``copy_source_counts``.
+Sources (in order):
+
+1. Test5 Phase 2 outputs under ``TEST5_WORK_ROOT``
+2. Optional Test4 work root (only if path exists — usually deleted)
+3. Reference Dataset650 (Test2/Test3) — last resort for missing HECKTOR stems
 
 Example:
 
-  export TEST5_WORK_ROOT=/media/.../work/retrain_test5
-  export TEST5_REFERENCE_DATASET650=/media/.../nnunet_radheck_test_1/Dataset650_TotalSegmentator
-  export TEST4_WORK_ROOT=/media/.../work/retrain_test4
+  export TEST5_WORK_ROOT=/media/HDD_8TB/xisca/work/retrain_test5
+  export TEST5_REFERENCE_DATASET650=/media/HDD_8TB/xisca/work/nnunet_radheck_test_1/Dataset650_TotalSegmentator
   export ORGAN_DICTIONARY_PATH=${TEST5_WORK_ROOT}/radcure_dictionary_test5.json
 
-  python -m pipelines.test5.build_dataset650
+  python -m pipelines.test5.build_dataset650 --dry-run
+  python -m pipelines.test5.build_dataset650 --link
 """
 
 from __future__ import annotations
@@ -46,11 +46,10 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from image_processor.conventions import HECKTOR, get_nnunet_case_number
-from pipelines.radheck.build_nnunet_dataset import copy_processed_hecktor_case, write_dataset_json
+from pipelines.radheck.build_nnunet_dataset import write_dataset_json
 from pipelines.radheck.nnunet_split_utils import audit_split_overlaps, print_audit, stem_from_image_filename
 from pipelines.test4.build_dataset650 import (
     _build_hecktor_stem_map,
-    _copy_radcure_relabel,
     _list_split_images,
     _radcure_case_id_from_stem,
 )
@@ -58,6 +57,33 @@ from pipelines.test4.build_dataset650 import (
 
 def _hecktor_stem(case_id: str) -> str:
     return f"case_{get_nnunet_case_number(case_id, HECKTOR)}"
+
+
+def _link_or_copy(src: Path, dst: Path, mode: str) -> None:
+    """
+    Place ``src`` at ``dst``.
+
+    mode:
+      - hardlink (default): os.link, else copy2
+      - symlink: os.symlink
+      - copy: shutil.copy2
+    """
+    dst = Path(dst)
+    src = Path(src)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists() or dst.is_symlink():
+        dst.unlink()
+    if mode == "copy":
+        shutil.copy2(src, dst)
+        return
+    if mode == "symlink":
+        os.symlink(os.path.abspath(src), dst)
+        return
+    # hardlink
+    try:
+        os.link(src, dst)
+    except OSError:
+        shutil.copy2(src, dst)
 
 
 def _resolve_reference_dataset650(reference_dataset650: Path) -> Tuple[Path, dict]:
@@ -137,12 +163,26 @@ def _discarded_stems(discarded_case_ids: Set[str], hecktor_by_stem: Dict[str, st
     return stems
 
 
-def _copy_stem_from_dataset650(
+def _place_pair(
+    src_img: Path,
+    src_lbl: Path,
+    dst_images: str,
+    dst_labels: str,
+    img_name: str,
+    lbl_name: str,
+    mode: str,
+) -> None:
+    _link_or_copy(src_img, Path(dst_images) / img_name, mode)
+    _link_or_copy(src_lbl, Path(dst_labels) / lbl_name, mode)
+
+
+def _place_from_dataset650(
     dataset_folder: Path,
     split: str,
     stem: str,
     dst_images: str,
     dst_labels: str,
+    mode: str,
 ) -> None:
     img_name = f"{stem}_0000.nii.gz"
     lbl_name = f"{stem}.nii.gz"
@@ -156,13 +196,69 @@ def _copy_stem_from_dataset650(
         img_name = src_img.name
     if not src_lbl.is_file():
         raise FileNotFoundError(f"Missing {src_lbl}")
-    os.makedirs(dst_images, exist_ok=True)
-    os.makedirs(dst_labels, exist_ok=True)
-    shutil.copy2(src_img, os.path.join(dst_images, img_name))
-    shutil.copy2(src_lbl, os.path.join(dst_labels, lbl_name))
+    _place_pair(src_img, src_lbl, dst_images, dst_labels, img_name, lbl_name, mode)
 
 
-def _try_copy_case(
+def _place_radcure_relabel(
+    radcure_retrain: Path,
+    case_id: str,
+    dst_images: str,
+    dst_labels: str,
+    mode: str,
+) -> None:
+    out_i = radcure_retrain / case_id / "output" / "image"
+    out_l = radcure_retrain / case_id / "output" / "labels"
+    if not out_i.is_dir() or not out_l.is_dir():
+        raise FileNotFoundError(f"Missing relabeled output for {case_id}: {out_i}")
+    imgs = [f for f in os.listdir(out_i) if f.endswith(".nii.gz")]
+    lbls = [f for f in os.listdir(out_l) if f.endswith(".nii.gz")]
+    if not imgs or not lbls:
+        raise FileNotFoundError(f"No nifti in {out_i} / {out_l}")
+    src_img = out_i / imgs[0]
+    src_lbl = out_l / lbls[0]
+    if imgs[0].endswith("_0000.nii.gz"):
+        base = imgs[0].replace("_0000.nii.gz", "")
+    else:
+        base = imgs[0].replace(".nii.gz", "")
+    _place_pair(
+        src_img,
+        src_lbl,
+        dst_images,
+        dst_labels,
+        imgs[0],
+        f"{base}.nii.gz",
+        mode,
+    )
+
+
+def _place_hecktor_relabel(
+    cases_root: Path,
+    case_id: str,
+    dst_images: str,
+    dst_labels: str,
+    mode: str,
+) -> None:
+    out_i = cases_root / case_id / "output" / "image"
+    out_l = cases_root / case_id / "output" / "labels"
+    if not out_i.is_dir() or not out_l.is_dir():
+        raise FileNotFoundError(f"Missing HECKTOR output for {case_id}")
+    imgs = [f for f in os.listdir(out_i) if f.endswith(".nii.gz")]
+    lbls = [f for f in os.listdir(out_l) if f.endswith(".nii.gz")]
+    if not imgs or not lbls:
+        raise FileNotFoundError(f"No nifti in {out_i} / {out_l}")
+    src_img = out_i / imgs[0]
+    src_lbl = out_l / lbls[0]
+    if imgs[0].endswith("_0000.nii.gz"):
+        base = imgs[0].replace("_0000.nii.gz", "")
+        img_name = imgs[0]
+        lbl_name = f"{base}.nii.gz"
+    else:
+        img_name = imgs[0]
+        lbl_name = lbls[0]
+    _place_pair(src_img, src_lbl, dst_images, dst_labels, img_name, lbl_name, mode)
+
+
+def _try_place_case(
     *,
     split: str,
     stem: str,
@@ -176,6 +272,7 @@ def _try_copy_case(
     dst_img: str,
     dst_lbl: str,
     allow_reference_fallback: bool,
+    link_mode: str,
 ) -> str:
     is_hecktor = stem in hecktor_by_stem
     errors: List[str] = []
@@ -183,41 +280,45 @@ def _try_copy_case(
     if is_hecktor:
         cid = hecktor_by_stem[stem]
         try:
-            copy_processed_hecktor_case(str(test5_hecktor), cid, dst_img, dst_lbl)
+            _place_hecktor_relabel(test5_hecktor, cid, dst_img, dst_lbl, link_mode)
             return "test5_relabel"
         except (FileNotFoundError, OSError) as exc:
             errors.append(f"test5:{exc}")
         if test4_hecktor is not None:
             try:
-                copy_processed_hecktor_case(str(test4_hecktor), cid, dst_img, dst_lbl)
+                _place_hecktor_relabel(test4_hecktor, cid, dst_img, dst_lbl, link_mode)
                 return "test4_relabel"
             except (FileNotFoundError, OSError) as exc:
                 errors.append(f"test4_relabel:{exc}")
     else:
         case_id = _radcure_case_id_from_stem(stem)
         try:
-            _copy_radcure_relabel(test5_radcure, case_id, dst_img, dst_lbl)
+            _place_radcure_relabel(test5_radcure, case_id, dst_img, dst_lbl, link_mode)
             return "test5_relabel"
         except (FileNotFoundError, OSError) as exc:
             errors.append(f"test5:{exc}")
         if test4_radcure is not None:
             try:
-                _copy_radcure_relabel(test4_radcure, case_id, dst_img, dst_lbl)
+                _place_radcure_relabel(
+                    test4_radcure, case_id, dst_img, dst_lbl, link_mode
+                )
                 return "test4_relabel"
             except (FileNotFoundError, OSError) as exc:
                 errors.append(f"test4_relabel:{exc}")
 
     if test4_dataset650 is not None and test4_dataset650.is_dir():
         try:
-            _copy_stem_from_dataset650(test4_dataset650, split, stem, dst_img, dst_lbl)
+            _place_from_dataset650(
+                test4_dataset650, split, stem, dst_img, dst_lbl, link_mode
+            )
             return "test4_dataset650"
         except (FileNotFoundError, OSError) as exc:
             errors.append(f"test4_ds:{exc}")
 
     if allow_reference_fallback:
         try:
-            _copy_stem_from_dataset650(
-                reference_dataset650, split, stem, dst_img, dst_lbl
+            _place_from_dataset650(
+                reference_dataset650, split, stem, dst_img, dst_lbl, link_mode
             )
             return "reference_dataset650"
         except (FileNotFoundError, OSError) as exc:
@@ -236,6 +337,7 @@ def build_dataset650(
     skip_missing: bool = False,
     test4_work_root: Optional[Path] = None,
     allow_reference_fallback: bool = True,
+    link_mode: str = "hardlink",
 ) -> Path:
     reference_dataset650, manifest = _resolve_reference_dataset650(reference_dataset650)
     hecktor_by_stem = _build_hecktor_stem_map(manifest)
@@ -247,12 +349,9 @@ def build_dataset650(
     dataset_name = f"Dataset{dataset_id}_TotalSegmentator"
     dataset_folder = work_root / dataset_name
 
-    if test4_work_root is None:
-        env_t4 = os.getenv("TEST4_WORK_ROOT", "").strip()
-        test4_work_root = Path(env_t4) if env_t4 else Path(
-            "/media/HDD_8TB/xisca/work/retrain_test4"
-        )
-    test4_work_root = test4_work_root.resolve() if test4_work_root.exists() else None
+    if test4_work_root is not None and not test4_work_root.exists():
+        print(f"NOTE: Test4 work root missing (skipped): {test4_work_root}")
+        test4_work_root = None
     test4_hecktor = (test4_work_root / "hecktor") if test4_work_root else None
     test4_radcure = (
         (test4_work_root / "TotalSegmentatorRetrain") if test4_work_root else None
@@ -273,18 +372,18 @@ def build_dataset650(
         for p in radcure_retrain.glob("*/output/image")
         if p.is_dir() and any(p.glob("*.nii.gz"))
     )
-    print(f"Test5 relabel outputs: RADCURE={n_radcure_ready}  HECKTOR={n_hecktor_ready}")
+    print(f"Test5 outputs: RADCURE={n_radcure_ready}  HECKTOR={n_hecktor_ready}")
     print(f"  RADCURE root: {radcure_retrain}")
     print(f"  HECKTOR root: {hecktor_root}")
+    print(f"  Link mode:    {link_mode}")
     if test4_work_root:
         print(f"Test4 fallback root: {test4_work_root}")
         print(f"  Test4 Dataset650: {test4_dataset650 or '(not found)'}")
-    if n_hecktor_ready < 50:
+    if n_hecktor_ready < 50 and allow_reference_fallback:
         print(
-            "\nNOTE: Only a small HECKTOR relabel set (Test4 matches this).\n"
-            "  Missing HECKTOR stems will be filled from Test4 Dataset650\n"
-            "  or the reference Dataset650. Only Test5-relabeled cases get\n"
-            "  the improved background.\n"
+            "\nNOTE: Few HECKTOR Test5 outputs yet.\n"
+            "  Missing HECKTOR stems will use reference Dataset650 labels\n"
+            "  (not improved bg) until Phase 2 finishes more cases.\n"
         )
 
     if dataset_folder.is_dir() and not dry_run:
@@ -324,7 +423,7 @@ def build_dataset650(
                 skipped_qc.append(f"{split}/{stem}")
                 continue
             try:
-                src_tag = _try_copy_case(
+                src_tag = _try_place_case(
                     split=split,
                     stem=stem,
                     hecktor_by_stem=hecktor_by_stem,
@@ -337,6 +436,7 @@ def build_dataset650(
                     dst_img=str(dst_img),
                     dst_lbl=str(dst_lbl),
                     allow_reference_fallback=allow_reference_fallback,
+                    link_mode=link_mode,
                 )
                 source_counts[src_tag] = source_counts.get(src_tag, 0) + 1
                 counts[split] += 1
@@ -347,7 +447,7 @@ def build_dataset650(
 
     if missing and not skip_missing:
         raise RuntimeError(
-            f"{len(missing)} case(s) missing from Test5, Test4, and reference.\n"
+            f"{len(missing)} case(s) missing from Test5 / optional Test4 / reference.\n"
             f"First 10:\n"
             + "\n".join(missing[:10])
             + "\n\nUse --skip-missing to drop them."
@@ -384,10 +484,11 @@ def build_dataset650(
         "organ_dictionary_path": str(organ_dictionary_path),
         "dataset_folder": str(dataset_folder),
         "dataset_id": dataset_id,
+        "link_mode": link_mode,
         "split_source": "Test2/Test3 reference split_manifest + images{{Tr,Va,Ts}}",
         "label_source": (
-            "Prefer Test5 improved relabel; fallback Test4 relabel / "
-            "Test4 Dataset650 / reference Dataset650"
+            "Prefer Test5 improved transform; optional Test4 if present; "
+            "else reference Dataset650"
         ),
         "hecktor_output_root": str(hecktor_root),
         "test4_work_root": str(test4_work_root) if test4_work_root else None,
@@ -410,8 +511,8 @@ def build_dataset650(
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Test5 Phase 3: build Dataset650 (Test2/3 splits − QC), "
-            "with Test4/reference fallbacks for missing HECKTOR relabels"
+            "Test5 Phase 3: build Dataset650 (Test2/3 splits − QC). "
+            "Default --link hardlinks files to save disk."
         )
     )
     parser.add_argument(
@@ -422,7 +523,13 @@ def main() -> None:
         "--reference-dataset650",
         default=os.getenv(
             "TEST5_REFERENCE_DATASET650",
-            os.getenv("TEST4_REFERENCE_DATASET650", os.getenv("RADHECK_DATASET", "")),
+            os.getenv(
+                "TEST4_REFERENCE_DATASET650",
+                os.getenv(
+                    "RADHECK_DATASET",
+                    "/media/HDD_8TB/xisca/work/nnunet_radheck_test_1/Dataset650_TotalSegmentator",
+                ),
+            ),
         ),
     )
     parser.add_argument(
@@ -431,8 +538,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--test4-work-root",
-        default=os.getenv("TEST4_WORK_ROOT", "/media/HDD_8TB/xisca/work/retrain_test4"),
-        help="Fallback for missing Test5 relabels (env: TEST4_WORK_ROOT)",
+        default=os.getenv("TEST4_WORK_ROOT", ""),
+        help="Optional fallback if still on disk (env: TEST4_WORK_ROOT); empty = skip",
     )
     parser.add_argument("--dataset-id", default="650")
     parser.add_argument("--dry-run", action="store_true")
@@ -443,12 +550,18 @@ def main() -> None:
     parser.add_argument(
         "--skip-missing",
         action="store_true",
-        help="Drop stems missing from all fallbacks",
+        help="Drop stems missing from all available sources",
     )
     parser.add_argument(
         "--no-reference-fallback",
         action="store_true",
-        help="Do not copy from Test2/Test3 Dataset650 labels",
+        help="Do not use Test2/Test3 Dataset650 labels",
+    )
+    parser.add_argument(
+        "--link",
+        choices=("hardlink", "symlink", "copy"),
+        default=os.getenv("TEST5_DATASET_LINK_MODE", "hardlink"),
+        help="How to place NIfTIs into Dataset650 (default: hardlink)",
     )
     args = parser.parse_args()
 
@@ -469,14 +582,16 @@ def main() -> None:
     hecktor_out = (
         Path(args.hecktor_output_root).resolve() if args.hecktor_output_root else None
     )
-    t4 = Path(args.test4_work_root) if args.test4_work_root else None
+    t4_raw = (args.test4_work_root or "").strip()
+    t4 = Path(t4_raw) if t4_raw else None
 
     print("=" * 70)
     print("Test5 Phase 3 — build Dataset650")
     print(f"Work root:     {work_root}")
     print(f"Reference:     {reference}")
     print(f"Organ dict:    {organ_dict}")
-    print(f"Test4 root:    {t4}")
+    print(f"Test4 root:    {t4 or '(none)'}")
+    print(f"Link mode:     {args.link}")
     print("=" * 70)
 
     build_dataset650(
@@ -489,6 +604,7 @@ def main() -> None:
         skip_missing=bool(args.skip_missing),
         test4_work_root=t4,
         allow_reference_fallback=not bool(args.no_reference_fallback),
+        link_mode=str(args.link),
     )
 
 
