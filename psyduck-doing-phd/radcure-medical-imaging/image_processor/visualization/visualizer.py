@@ -3,13 +3,36 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from matplotlib.colors import ListedColormap, BoundaryNorm
+from matplotlib.colors import ListedColormap, BoundaryNorm, Colormap
 from matplotlib.backends.backend_pdf import PdfPages
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Union
 import SimpleITK as sitk
 import json
 import os
 from image_processor.io.nifti_handler import NIfTIHandler
+
+
+def _get_cmap(name: str, lut: Optional[int] = None) -> Union[Colormap, ListedColormap]:
+    """
+    Matplotlib-version-safe colormap lookup.
+
+    ``matplotlib.cm.get_cmap`` was removed in Matplotlib 3.9+; use
+    ``plt.colormaps[name].resampled(lut)`` when available.
+    """
+    try:
+        cmap = plt.colormaps[name]
+        if lut is not None and hasattr(cmap, "resampled"):
+            return cmap.resampled(int(lut))
+        return cmap
+    except (AttributeError, KeyError, TypeError):
+        pass
+    # Matplotlib < 3.7 / transitional API
+    get_cmap = getattr(plt.cm, "get_cmap", None) or getattr(plt, "get_cmap", None)
+    if get_cmap is None:
+        raise AttributeError(
+            f"Cannot load colormap {name!r}: no plt.colormaps or get_cmap"
+        )
+    return get_cmap(name, lut) if lut is not None else get_cmap(name)
 
 
 class MedicalImageVisualizer:
@@ -40,7 +63,7 @@ class MedicalImageVisualizer:
             if i in reserved:
                 continue
             if colors[i, 0] > red_threshold:
-                alt_cmap = plt.cm.get_cmap("Set3", colormap_size)
+                alt_cmap = _get_cmap("Set3", colormap_size)
                 alt_colors = alt_cmap(np.arange(colormap_size))
                 colors[i, :3] = alt_colors[i, :3]
                 colors[i, 3] = 1.0
@@ -67,7 +90,7 @@ class MedicalImageVisualizer:
         if max_label <= 0:
             max_label = 1
         
-        base_cmap = plt.cm.get_cmap("tab20", max_label + 1)
+        base_cmap = _get_cmap("tab20", max_label + 1)
         colors = base_cmap(np.arange(max_label + 1))
         colors[0, :] = [0.0, 0.0, 0.0, 0.0]  # transparent background
         
@@ -254,7 +277,7 @@ class MedicalImageVisualizer:
             colormap_size = max(max_label + 1, gtvp_index + 1 if gtvp_index else 0)
             if gtvn_index is not None:
                 colormap_size = max(colormap_size, gtvn_index + 1)
-            base_cmap = plt.cm.get_cmap("tab20", colormap_size)
+            base_cmap = _get_cmap("tab20", colormap_size)
             colors = base_cmap(np.arange(colormap_size))
             colors[0, :] = [0.0, 0.0, 0.0, 0.0]  # transparent background
             MedicalImageVisualizer._apply_tumor_highlight_colors(
@@ -478,7 +501,7 @@ class MedicalImageVisualizer:
         
         # Create unified colormap (same for both masks)
         # Use tab20 colormap but ensure GTVp is always RED
-        base_cmap = plt.cm.get_cmap("tab20", colormap_size)
+        base_cmap = _get_cmap("tab20", colormap_size)
         colors = base_cmap(np.arange(colormap_size))
         colors[0, :] = [0.0, 0.0, 0.0, 0.0]  # transparent background
         
@@ -494,7 +517,7 @@ class MedicalImageVisualizer:
             for i in range(1, colormap_size):
                 if i != gtvp_index and colors[i, 0] > red_threshold:
                     # Replace with a different color from a different colormap
-                    alt_cmap = plt.cm.get_cmap("Set3", colormap_size)
+                    alt_cmap = _get_cmap("Set3", colormap_size)
                     alt_colors = alt_cmap(np.arange(colormap_size))
                     # Use the alternative color but keep alpha
                     colors[i, :3] = alt_colors[i, :3]
