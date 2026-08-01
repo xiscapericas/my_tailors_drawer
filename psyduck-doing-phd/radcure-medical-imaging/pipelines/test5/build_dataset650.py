@@ -55,7 +55,6 @@ from pipelines.radheck.nnunet_split_utils import (
     stem_from_image_filename,
 )
 from pipelines.test4.build_dataset650 import (
-    _build_hecktor_stem_map,
     _list_split_images,
     _radcure_case_id_from_stem,
 )
@@ -73,6 +72,28 @@ DEFAULT_RADCURE_DATASET366 = (
 
 def _hecktor_stem(case_id: str) -> str:
     return f"case_{get_nnunet_case_number(case_id, HECKTOR)}"
+
+
+def _hecktor_stem_maps_by_split(manifest: dict) -> Dict[str, Dict[str, str]]:
+    """
+    Per-split stem → HECKTOR folder id.
+
+    Train and val can share numeric suffixes (CHUM-017 vs HGJ-017 → case_017);
+    a single global map would overwrite and pick the wrong center.
+    """
+    maps: Dict[str, Dict[str, str]] = {"Tr": {}, "Va": {}, "Ts": {}}
+    for cid in manifest.get("hecktor_train_cases") or []:
+        maps["Tr"][_hecktor_stem(str(cid))] = str(cid)
+    for cid in manifest.get("hecktor_val_cases") or []:
+        maps["Va"][_hecktor_stem(str(cid))] = str(cid)
+    return maps
+
+
+def _all_hecktor_stems(maps: Dict[str, Dict[str, str]]) -> Set[str]:
+    stems: Set[str] = set()
+    for m in maps.values():
+        stems.update(m.keys())
+    return stems
 
 
 def _link_or_copy(src: Path, dst: Path, mode: str) -> None:
@@ -398,7 +419,7 @@ def _try_place_case(
     *,
     split: str,
     stem: str,
-    hecktor_by_stem: Dict[str, str],
+    hecktor_by_split: Dict[str, Dict[str, str]],
     test5_radcure: Path,
     test5_hecktor: Path,
     test4_radcure: Optional[Path],
@@ -410,19 +431,22 @@ def _try_place_case(
     allow_reference_fallback: bool,
     link_mode: str,
 ) -> str:
-    is_hecktor = stem in hecktor_by_stem
+    hecktor_cid = (hecktor_by_split.get(split) or {}).get(stem)
     errors: List[str] = []
 
-    if is_hecktor:
-        cid = hecktor_by_stem[stem]
+    if hecktor_cid is not None:
         try:
-            _place_hecktor_relabel(test5_hecktor, cid, dst_img, dst_lbl, link_mode)
+            _place_hecktor_relabel(
+                test5_hecktor, hecktor_cid, dst_img, dst_lbl, link_mode
+            )
             return "test5_relabel"
         except (FileNotFoundError, OSError) as exc:
             errors.append(f"test5:{exc}")
         if test4_hecktor is not None:
             try:
-                _place_hecktor_relabel(test4_hecktor, cid, dst_img, dst_lbl, link_mode)
+                _place_hecktor_relabel(
+                    test4_hecktor, hecktor_cid, dst_img, dst_lbl, link_mode
+                )
                 return "test4_relabel"
             except (FileNotFoundError, OSError) as exc:
                 errors.append(f"test4_relabel:{exc}")
@@ -481,7 +505,8 @@ def build_dataset650(
         reference_dataset650, split_manifest=split_manifest
     )
     print(f"Split manifest: {manifest_used}")
-    hecktor_by_stem = _build_hecktor_stem_map(manifest)
+    hecktor_by_split = _hecktor_stem_maps_by_split(manifest)
+    hecktor_by_stem = {**hecktor_by_split["Tr"], **hecktor_by_split["Va"]}
     discarded_ids = _load_qc_discarded_case_ids(work_root)
     discarded_stems = _discarded_stems(discarded_ids, hecktor_by_stem)
 
@@ -587,7 +612,7 @@ def build_dataset650(
                 src_tag = _try_place_case(
                     split=split,
                     stem=stem,
-                    hecktor_by_stem=hecktor_by_stem,
+                    hecktor_by_split=hecktor_by_split,
                     test5_radcure=radcure_retrain,
                     test5_hecktor=hecktor_root,
                     test4_radcure=test4_radcure,
@@ -607,15 +632,43 @@ def build_dataset650(
     print("\nCopy sources:", dict(sorted(source_counts.items())))
 
     if missing and not skip_missing:
+        hek_stems = _all_hecktor_stems(hecktor_by_split)
+        n_hek = n_rad = 0
+        for m in missing:
+            left = m.split(":", 1)[0]
+            stem = left.split("/", 1)[-1] if "/" in left else left
+            if stem in hek_stems:
+                n_hek += 1
+            else:
+                n_rad += 1
+        n_manifest_hek = len(hecktor_by_split["Tr"]) + len(hecktor_by_split["Va"])
         raise RuntimeError(
             f"{len(missing)} case(s) missing from Test5 / optional Test4 / reference.\n"
-            f"First 10:\n"
+            f"  HECKTOR missing: {n_hek}  |  RADCURE missing: {n_rad}\n"
+            f"  Test5 HECKTOR outputs ready: {n_hecktor_ready}  "
+            f"(manifest train+val ≈ {n_manifest_hek})\n"
+            "\n"
+            "This usually means Phase 2 has not transformed all HECKTOR train/val cases yet.\n"
+            "Options:\n"
+            "  1) Finish Phase 2 on the FULL HECKTOR training tree (not only a small test1 zip):\n"
+            f"       export TEST5_HECKTOR_SOURCE_CASES_ROOT="
+            f"{manifest.get('hecktor_cases_root', '.../HECKTOR2025_task1_training/unzipped/task1')}\n"
+            "       python -m pipelines.test5.relabel_tumor_batch\n"
+            "  2) Build with what you have (drops missing stems):\n"
+            "       python -m pipelines.test5.build_dataset650 --link hardlink --skip-missing\n"
+            "\nFirst 10:\n"
             + "\n".join(missing[:10])
-            + "\n\nUse --skip-missing to drop them."
         )
 
     if missing and skip_missing:
+        hek_stems = _all_hecktor_stems(hecktor_by_split)
+        n_hek = sum(
+            1
+            for m in missing
+            if (m.split(":", 1)[0].split("/", 1)[-1]) in hek_stems
+        )
         print(f"\nWARNING: --skip-missing: dropping {len(missing)} stems")
+        print(f"  (of which ≈{n_hek} are HECKTOR)")
 
     if dry_run:
         print("\nDry run — no files written.")
