@@ -4,24 +4,25 @@ Test5 Phase 3 — build Dataset650 from improved-preprocess transforms.
 
 Uses the **same Tr/Va/Ts membership** as Test1 (recovered ``split_manifest.json``).
 If Dataset650 ``images*`` are missing, reconstructs stems from Dataset366 +
-HECKTOR train/val lists (Ts > Tr > Va dedupe). Drops anatomy-QC discards.
+HECKTOR train/val lists (Ts > Tr > Va dedupe).
+
+Preferred Phase 2 layout (from-scratch):
+
+  ``${TEST5_WORK_ROOT}/RADHECK_{N}/cases/{case_id}/output/…``
+
+Legacy layout still accepted: separate ``TotalSegmentatorRetrain/`` + ``hecktor/``.
+
+Anatomy QC is **off** for the from-scratch path (no discards unless old QC logs exist).
 
 Copy mode default is **hardlink** (falls back to copy cross-device) to save disk.
-
-Sources (in order):
-
-1. Test5 Phase 2 outputs under ``TEST5_WORK_ROOT``
-2. Optional Test4 work root (only if path exists)
-3. Reference Dataset650 NIfTIs — only if that folder still has images (usually not)
 
 Example:
 
   export TEST5_WORK_ROOT=/media/HDD_8TB/xisca/work/retrain_test5
-  export TEST5_REFERENCE_DATASET650=${TEST5_WORK_ROOT}/Dataset650_TotalSegmentator
-  export ORGAN_DICTIONARY_PATH=${TEST5_WORK_ROOT}/radcure_dictionary_test5.json
+  export ORGAN_DICTIONARY_PATH=${TEST5_WORK_ROOT}/organ_dictionary_test5.json
 
-  python -m pipelines.test5.restore_split_reference
-  python -m pipelines.test5.build_dataset650 --dry-run
+  python -m pipelines.test5.build_datasets --link hardlink
+  # or Dataset650 only:
   python -m pipelines.test5.build_dataset650 --link hardlink
 """
 
@@ -58,15 +59,16 @@ from pipelines.test4.build_dataset650 import (
     _list_split_images,
     _radcure_case_id_from_stem,
 )
-
-BUNDLED_SPLIT_MANIFEST = (
-    _REPO_ROOT / "experiments" / "artifacts" / "test1_dataset650_split_manifest.json"
+from pipelines.test5.paths import (
+    BUNDLED_SPLIT_MANIFEST,
+    DEFAULT_RADCURE_DATASET366,
+    DEFAULT_WORK_ROOT,
+    resolve_cases_root,
+    resolve_radheck,
 )
+
 DEFAULT_REFERENCE_DATASET650 = (
     "/media/HDD_8TB/xisca/work/retrain_test5/Dataset650_TotalSegmentator"
-)
-DEFAULT_RADCURE_DATASET366 = (
-    "/media/HDD_8TB/xisca/work/nnunet_retrain_radcure366/Dataset366_TotalSegmentator"
 )
 
 
@@ -422,6 +424,7 @@ def _try_place_case(
     hecktor_by_split: Dict[str, Dict[str, str]],
     test5_radcure: Path,
     test5_hecktor: Path,
+    test5_cases_root: Optional[Path],
     test4_radcure: Optional[Path],
     test4_hecktor: Optional[Path],
     test4_dataset650: Optional[Path],
@@ -435,6 +438,14 @@ def _try_place_case(
     errors: List[str] = []
 
     if hecktor_cid is not None:
+        if test5_cases_root is not None:
+            try:
+                _place_hecktor_relabel(
+                    test5_cases_root, hecktor_cid, dst_img, dst_lbl, link_mode
+                )
+                return "test5_radheck"
+            except (FileNotFoundError, OSError) as exc:
+                errors.append(f"test5_radheck:{exc}")
         try:
             _place_hecktor_relabel(
                 test5_hecktor, hecktor_cid, dst_img, dst_lbl, link_mode
@@ -452,6 +463,14 @@ def _try_place_case(
                 errors.append(f"test4_relabel:{exc}")
     else:
         case_id = _radcure_case_id_from_stem(stem)
+        if test5_cases_root is not None:
+            try:
+                _place_radcure_relabel(
+                    test5_cases_root, case_id, dst_img, dst_lbl, link_mode
+                )
+                return "test5_radheck"
+            except (FileNotFoundError, OSError) as exc:
+                errors.append(f"test5_radheck:{exc}")
         try:
             _place_radcure_relabel(test5_radcure, case_id, dst_img, dst_lbl, link_mode)
             return "test5_relabel"
@@ -500,6 +519,7 @@ def build_dataset650(
     link_mode: str = "hardlink",
     split_manifest: Optional[Path] = None,
     radcure_dataset366: Optional[Path] = None,
+    cases_root: Optional[Path] = None,
 ) -> Path:
     reference_dataset650, manifest, manifest_used = _resolve_manifest(
         reference_dataset650, split_manifest=split_manifest
@@ -511,7 +531,18 @@ def build_dataset650(
     discarded_stems = _discarded_stems(discarded_ids, hecktor_by_stem)
 
     radcure_retrain = work_root / "TotalSegmentatorRetrain"
-    hecktor_root = Path(hecktor_output_root) if hecktor_output_root else (work_root / "hecktor")
+    hecktor_root = (
+        Path(hecktor_output_root) if hecktor_output_root else (work_root / "hecktor")
+    )
+    unified_cases: Optional[Path] = None
+    if cases_root is not None:
+        unified_cases = Path(cases_root).expanduser().resolve()
+    else:
+        try:
+            _, unified_cases = resolve_cases_root(work_root)
+        except FileNotFoundError:
+            unified_cases = None
+
     dataset_name = f"Dataset{dataset_id}_TotalSegmentator"
     dataset_folder = work_root / dataset_name
 
@@ -528,19 +559,29 @@ def build_dataset650(
         if cand.is_dir() and (cand / "imagesTr").is_dir():
             test4_dataset650 = cand
 
-    n_hecktor_ready = sum(
-        1
-        for p in hecktor_root.glob("*/output/image")
-        if p.is_dir() and any(p.glob("*.nii.gz"))
-    )
-    n_radcure_ready = sum(
-        1
-        for p in radcure_retrain.glob("*/output/image")
-        if p.is_dir() and any(p.glob("*.nii.gz"))
-    )
-    print(f"Test5 outputs: RADCURE={n_radcure_ready}  HECKTOR={n_hecktor_ready}")
-    print(f"  RADCURE root: {radcure_retrain}")
-    print(f"  HECKTOR root: {hecktor_root}")
+    if unified_cases is not None and unified_cases.is_dir():
+        n_unified = sum(
+            1
+            for p in unified_cases.glob("*/output/image")
+            if p.is_dir() and any(p.glob("*.nii.gz"))
+        )
+        print(f"Test5 unified cases: {n_unified} ready under {unified_cases}")
+        n_hecktor_ready = n_unified
+        n_radcure_ready = n_unified
+    else:
+        n_hecktor_ready = sum(
+            1
+            for p in hecktor_root.glob("*/output/image")
+            if p.is_dir() and any(p.glob("*.nii.gz"))
+        )
+        n_radcure_ready = sum(
+            1
+            for p in radcure_retrain.glob("*/output/image")
+            if p.is_dir() and any(p.glob("*.nii.gz"))
+        )
+        print(f"Test5 outputs: RADCURE={n_radcure_ready}  HECKTOR={n_hecktor_ready}")
+        print(f"  RADCURE root: {radcure_retrain}")
+        print(f"  HECKTOR root: {hecktor_root}")
     print(f"  Link mode:    {link_mode}")
     if test4_work_root:
         print(f"Test4 fallback root: {test4_work_root}")
@@ -615,6 +656,7 @@ def build_dataset650(
                     hecktor_by_split=hecktor_by_split,
                     test5_radcure=radcure_retrain,
                     test5_hecktor=hecktor_root,
+                    test5_cases_root=unified_cases,
                     test4_radcure=test4_radcure,
                     test4_hecktor=test4_hecktor,
                     test4_dataset650=test4_dataset650,
@@ -650,12 +692,14 @@ def build_dataset650(
             "\n"
             "This usually means Phase 2 has not transformed all HECKTOR train/val cases yet.\n"
             "Options:\n"
-            "  1) Finish Phase 2 on the FULL HECKTOR training tree (not only a small test1 zip):\n"
-            f"       export TEST5_HECKTOR_SOURCE_CASES_ROOT="
+            "  1) Finish Phase 2 with BOTH HECKTOR sources (training task1 + test1):\n"
+            f"       export TEST5_HECKTOR_TRAIN_SOURCE="
             f"{manifest.get('hecktor_cases_root', '.../HECKTOR2025_task1_training/unzipped/task1')}\n"
-            "       python -m pipelines.test5.relabel_tumor_batch\n"
+            "       export TEST5_HECKTOR_TEST_SOURCE="
+            ".../hecktor/test1/unzipped/test1\n"
+            "       python -m pipelines.test5.transform_cases\n"
             "  2) Build with what you have (drops missing stems):\n"
-            "       python -m pipelines.test5.build_dataset650 --link hardlink --skip-missing\n"
+            "       python -m pipelines.test5.build_datasets --link hardlink --skip-missing\n"
             "\nFirst 10:\n"
             + "\n".join(missing[:10])
         )
@@ -706,6 +750,7 @@ def build_dataset650(
             "else reference Dataset650"
         ),
         "hecktor_output_root": str(hecktor_root),
+        "unified_cases_root": str(unified_cases) if unified_cases else None,
         "test4_work_root": str(test4_work_root) if test4_work_root else None,
         "copy_source_counts": source_counts,
         "anatomy_qc_discarded_case_ids": sorted(discarded_ids),
@@ -713,6 +758,7 @@ def build_dataset650(
         "missing_skipped": missing if skip_missing else [],
         "counts_built": counts,
         "background_mode": "improved_where_test5_relabel_exists",
+        "anatomy_qc": False,
     }
     man_path = dataset_folder / "split_manifest.json"
     with open(man_path, "w") as f:
@@ -732,7 +778,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--work-root",
-        default=os.getenv("TEST5_WORK_ROOT", "work/retrain_test5"),
+        default=os.getenv("TEST5_WORK_ROOT", DEFAULT_WORK_ROOT),
+    )
+    parser.add_argument(
+        "--cases-root",
+        default=os.getenv("TEST5_CASES_ROOT", ""),
+        help="Unified RADHECK_{N}/cases (auto-detected via RADHECK_CURRENT if empty)",
     )
     parser.add_argument(
         "--reference-dataset650",
@@ -795,11 +846,26 @@ def main() -> None:
     reference = Path(args.reference_dataset650).expanduser()
     reference.mkdir(parents=True, exist_ok=True)
     reference = reference.resolve()
-    organ_dict = Path(
-        args.organ_dictionary_path or (work_root / "radcure_dictionary_test5.json")
-    ).resolve()
-    if not organ_dict.is_file():
-        raise FileNotFoundError(f"Organ dictionary not found: {organ_dict}")
+    organ_candidates = []
+    if args.organ_dictionary_path:
+        organ_candidates.append(Path(args.organ_dictionary_path))
+    organ_candidates.extend(
+        [
+            work_root / "organ_dictionary_test5.json",
+            work_root / "radcure_dictionary_test5.json",
+        ]
+    )
+    try:
+        radheck_guess = resolve_radheck(work_root)
+        organ_candidates.insert(1, radheck_guess / "organ_dictionary_test5.json")
+    except FileNotFoundError:
+        pass
+    organ_dict = next((p.resolve() for p in organ_candidates if p.is_file()), None)
+    if organ_dict is None:
+        raise FileNotFoundError(
+            "Organ dictionary not found. Expected organ_dictionary_test5.json "
+            "under work root or RADHECK_* after transform_cases."
+        )
 
     hecktor_out = (
         Path(args.hecktor_output_root).resolve() if args.hecktor_output_root else None
@@ -809,12 +875,15 @@ def main() -> None:
     sm_raw = (args.split_manifest or "").strip()
     sm = Path(sm_raw) if sm_raw else None
     rad366 = Path(args.radcure_dataset366).expanduser() if args.radcure_dataset366 else None
+    cases_raw = (args.cases_root or "").strip()
+    cases = Path(cases_raw).expanduser() if cases_raw else None
 
     print("=" * 70)
     print("Test5 Phase 3 — build Dataset650")
     print(f"Work root:     {work_root}")
     print(f"Reference:     {reference}")
     print(f"Organ dict:    {organ_dict}")
+    print(f"Cases root:    {cases or '(auto RADHECK_*/cases)'}")
     print(f"Split manif.:  {sm or '(auto/bundled)'}")
     print(f"Dataset366:    {rad366}")
     print(f"Test4 root:    {t4 or '(none)'}")
@@ -834,6 +903,7 @@ def main() -> None:
         link_mode=str(args.link),
         split_manifest=sm,
         radcure_dataset366=rad366,
+        cases_root=cases,
     )
 
 

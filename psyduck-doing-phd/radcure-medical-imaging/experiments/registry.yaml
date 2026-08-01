@@ -191,24 +191,24 @@ experiments:
 
   test5:
     id: test5
-    name: RADHECK — improved preprocess (QC + bg) vs Test4
+    name: RADHECK — improved preprocess (bg, no QC) vs Test4
     status: planned
     config_file: configs/test5_radheck_improved_preprocess.yaml
     changed_from: test4
     hypothesis: >
       Improved anatomical background (FOV body mask + L/R symmetry + Z continuity),
-      anatomy QC discard of non-human FOVs, and a canonical organ dictionary improve
-      GTVp/GTVn Dice vs Test4 on the same split family (minus QC exclusions).
+      separate GTVp/GTVn, and a canonical organ dictionary improve GTVp/GTVn Dice
+      vs Test4 on the same Test1 split family (no anatomy QC discards).
     training:
       cohorts: [radcure, hecktor]
       dataset_id: 650
       tumor_label_mode: separate
       background_mode: improved
-      anatomy_qc_threshold: 0.50
+      anatomy_qc_threshold: null
       trainer: nnUNetTrainer_700epochs_NoMirroring
       epochs: 700
       configuration: 3d_fullres
-      build_script: pipelines/test5/build_dataset650.py
+      build_script: pipelines/test5/build_datasets.py
       retrain_runbook: pipelines/radheck/Retrain-Radheck-Test5.md
       preprocessing_notebook: research_notebooks/preprocessing_pipeline_review/preprocessing_pipeline_review_colab.ipynb
     evaluation:
@@ -227,11 +227,10 @@ experiments:
         mean_dice_gtvn: null
         n_cases: null
     notes: |
-      Phase 2: python -m pipelines.test5.relabel_tumor_batch
-        (reuse TS; improved bg; anatomy QC 0.70; canonical organ dict).
-      Phase 3: python -m pipelines.test5.build_dataset650
-        (Test4/Test3 Tr/Va/Ts minus QC discards).
-      Train: same 700-epoch NoMirroring trainer as Test4; do not reuse preprocess.
+      Clean work root → transform into RADHECK_{N}/cases/ (unified) →
+      build Dataset650+152 → train 700 epochs NoMirroring → dual-cohort eval.
+      Phase 2: python -m pipelines.test5.transform_cases
+      Phase 3: python -m pipelines.test5.build_datasets
 
   test6:
     id: test6

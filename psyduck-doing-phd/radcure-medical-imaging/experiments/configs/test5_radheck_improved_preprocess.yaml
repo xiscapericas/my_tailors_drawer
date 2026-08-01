@@ -1,18 +1,19 @@
-# Test5 — improved preprocessing vs Test4 (same splits − anatomy QC, separate GTVp/GTVn)
+# Test5 — improved preprocessing vs Test4 (no anatomy QC, 700 epochs)
 #
 # One-line rule: Test5 changes preprocessing (improved anatomical background +
-# anatomy QC + canonical organ dict) compared to test4; tumor labels, trainer,
-# epochs, and Tr/Va/Ts membership (minus QC discards) stay the same.
+# canonical organ dict; no anatomy QC) compared to test4; tumor labels, trainer,
+# epochs, and Tr/Va/Ts membership stay the same as the Test1 manifesto.
 
 experiment:
   id: test5
-  name: RADHECK — improved preprocess (QC + bg) vs Test4
+  name: RADHECK — improved preprocess (bg, no QC) vs Test4
   status: planned
   changed_from: test4
   hypothesis: >
     Better anatomical_region / other-tissue (FOV-aware body mask, sagittal L/R
-    symmetry, Z continuity) plus discarding non-human FOVs via anatomy QC
-    improves GTVp/GTVn Dice vs Test4 on the same split family.
+    symmetry, Z continuity) with separate GTVp/GTVn and a canonical organ
+    dictionary improves GTVp/GTVn Dice vs Test4 on the same split family,
+    without discarding cases via anatomy QC.
 
 training:
   needs_dataset_build: true
@@ -27,15 +28,17 @@ training:
 
   tumor_label_mode: separate
   background_mode: improved
-  anatomy_qc_threshold: 0.50
+  anatomy_qc_threshold: null  # keep all cases
 
-  # Original sources (read-only). Outputs only under TEST5_WORK_ROOT.
+  # Original sources (read-only). Outputs under TEST5_WORK_ROOT/RADHECK_{N}/cases/
   sources:
-    radcure: ${TEST5_RADCURE_SOURCE}  # …/RadcureComplete/TotalSegmentatorRetrain
-    hecktor: ${TEST5_HECKTOR_SOURCE_CASES_ROOT}  # …/hecktor/test1/unzipped/test1
+    radcure: ${TEST5_RADCURE_SOURCE}
+    hecktor_train: ${TEST5_HECKTOR_TRAIN_SOURCE}
+    hecktor_test: ${TEST5_HECKTOR_TEST_SOURCE}
+  unified_cohort: RADHECK_{N}/cases
   memory:
     hecktor_cleanup_intermediates: true
-    dataset_link_mode: hardlink  # Phase 3 — avoid duplicating NIfTIs on disk
+    dataset_link_mode: hardlink
 
   trainer: nnUNetTrainer_700epochs_NoMirroring
   configuration: 3d_fullres
@@ -79,9 +82,9 @@ results:
   radcure:
     mean_dice_gtvp: null
     mean_dice_gtvn: null
-    n_cases: null  # Test4 Ts minus QC discards
+    n_cases: null
   hecktor:
     mean_dice_gtvp: null
     mean_dice_gtvn: null
     n_cases: null
-  notes: "Planned — see pipelines/radheck/Retrain-Radheck-Test5.md"
+  notes: "From scratch — see pipelines/radheck/Retrain-Radheck-Test5.md"

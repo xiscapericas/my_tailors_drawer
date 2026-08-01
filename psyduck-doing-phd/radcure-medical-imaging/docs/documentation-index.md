@@ -85,7 +85,7 @@ Single map of **all** docs. Each topic has **one canonical file** — others lin
 |-----|------|
 | [retrain_epoch_study/retrain_epoch_study.md](../research_notebooks/retrain_epoch_study/retrain_epoch_study.md) | **Paper draft** — Test1–3 narrative + figures |
 | [research_notebooks/README.md](../research_notebooks/README.md) | Notebook index |
-| [Retrain-Radheck-Test5.md](../pipelines/radheck/Retrain-Radheck-Test5.md) | **Test5** — improved preprocess vs Test4 (QC + bg) |
+| [Retrain-Radheck-Test5.md](../pipelines/radheck/Retrain-Radheck-Test5.md) | **Test5** — improved preprocess (bg, no QC) → unified RADHECK_{N} → 700 epochs |
 | [test5_radheck_improved_preprocess.yaml](../experiments/configs/test5_radheck_improved_preprocess.yaml) | Test5 experiment config |
 | [test6_stunet/](../research_notebooks/test6_stunet/) | **Test6 research** — STU-Net inference explore (organs; tumor FT later) |
 | [FINDINGS.md](../research_notebooks/preprocessing_pipeline_review/FINDINGS.md) | **Handoff** — Steps A–E; canonical organ dict; next = production wiring / Dice |

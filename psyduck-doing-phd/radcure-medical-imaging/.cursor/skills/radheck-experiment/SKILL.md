@@ -23,6 +23,7 @@ description: >-
 |-------|---------|
 | Preprocess RADCURE | `process_all_cases.py`, `split_dataset.py` |
 | Build RADHECK Dataset650 | `python -m pipelines.radheck.build_nnunet_dataset` |
+| **Test5 from scratch** | `clean_workspace` → `transform_cases` → `build_datasets` — see `Retrain-Radheck-Test5.md` |
 | nnUNet train/eval | `train_nnunet.py` |
 | HECKTOR test eval | `python -m pipelines.hecktor.test_pipeline` |
 
