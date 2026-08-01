@@ -74,6 +74,23 @@ research_test6_stunet/
 └── figures/
 ```
 
+## STU-Net layout notes (common Colab pitfalls)
+
+Upstream [STU-Net `plan_files/`](https://github.com/uni-medical/STU-Net/tree/main/plan_files) is **flat**:
+
+- `plans.pkl` (shared by all variants)
+- `small_ep4k.model.pkl`, `base_ep4k.model.pkl`, …
+
+The nested `STUNetTrainer_*__nnUNetPlansv2.1/` tree is what we **build** under `results_folder/`, not what the clone ships.
+
+On Colab, the cluster default `NNUNET_PATH=/media/HDD_8TB/...` will not exist. Section 4 falls back to `STU-Net/nnUNet-1.7.1`. Install it once so `nnUNet_predict` is available:
+
+```bash
+pip install -e "$TEST6_WORK_ROOT/STU-Net/nnUNet-1.7.1"
+```
+
+(or set `NNUNET_PATH` to that bundled folder before section 4).
+
 ## Later (not this notebook)
 
 - Fine-tune STU-Net on Dataset650 with separate GTVp/GTVn  
