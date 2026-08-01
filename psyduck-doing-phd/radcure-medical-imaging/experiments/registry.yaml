@@ -235,7 +235,7 @@ experiments:
   test6:
     id: test6
     name: STU-Net inference explore (research)
-    status: planned
+    status: explored
     config_file: configs/test6_stunet_inference_explore.yaml
     changed_from: test5
     hypothesis: >
@@ -252,7 +252,19 @@ experiments:
       metrics: [matched organ Dice, qualitative viz]
     results:
       primary_metric: matched_organ_Dice
-      notes: Research scaffold — inference notebook, not full train yet.
+      radcure:
+        name_matches: 0
+        n_cases: 2
+        note: "naive norm_name match; ~0–3 STU labels/case on H&N FOV"
+      hecktor:
+        name_matches: 0
+        n_cases: 2
+        note: "same; CHUM-023 had 0 non-zero STU labels on first run"
+      notes: >
+        Inference explore chapter closed (Colab, STU-Net-S, 4 cases).
+        Matched organ Dice nan (0 name overlaps). Tumor Dice N/A.
+        Next after Test5: synonym map, then fine-tune. See
+        research_notebooks/test6_stunet/README.md (lessons learnt).
 
 # ---------------------------------------------------------------------------
 # Next experiment — naming rules (see experiments/README.md § Naming convention)

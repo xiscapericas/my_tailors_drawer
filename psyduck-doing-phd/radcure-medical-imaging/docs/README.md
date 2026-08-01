@@ -46,7 +46,7 @@ Connected map: install, pipeline scripts, experiment registry, nnUNet reference,
 | Train / evaluate nnUNet | [nnunet_training/README.md](../nnunet_training/README.md) |
 | Write the paper | [retrain_epoch_study.md](../research_notebooks/retrain_epoch_study/retrain_epoch_study.md) |
 | Start Test5 (improved preprocess → RADHECK_{N} → 700 epochs) | [Retrain-Radheck-Test5.md](../pipelines/radheck/Retrain-Radheck-Test5.md) |
-| Explore STU-Net (Test6 research) | [test6_stunet/README.md](../research_notebooks/test6_stunet/README.md) |
+| Test6 STU-Net explore (done; FT later) | [test6_stunet/README.md](../research_notebooks/test6_stunet/README.md) |
 
 ---
 

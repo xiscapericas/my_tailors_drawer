@@ -5,11 +5,13 @@
 # no full Dataset650 retrain until fine-tuning is decided.
 #
 # Notebook flow: AWS download → Test5 CaseProcessor preprocess → STU-Net predict → Dice.
+#
+# Status: inference explore DONE (explored). Synonym map + fine-tune AFTER Test5.
 
 experiment:
   id: test6
   name: STU-Net inference explore (research)
-  status: planned
+  status: explored
   changed_from: test5
   hypothesis: >
     A large STU-Net pretrained on TotalSegmentator may provide stronger organ
@@ -21,10 +23,10 @@ training:
   needs_dataset_build: false
   needs_plan_preprocess: false
   reuse_preprocessed_from: null
-  note: research notebook only — not training yet
+  note: research notebook only — inference explore complete; not training yet
 
   cohorts: [radcure, hecktor]
-  model: STU-Net-S  # then B / L / H
+  model: STU-Net-S  # then B / L / H after synonym map / if warranted
   pretrained_on: TotalSegmentator (104 classes)
   tumor_label_mode: n/a  # pretrained STU-Net has no GTVp/GTVn
 
@@ -39,9 +41,21 @@ training:
 evaluation:
   metrics:
     - organ Dice (name-matched vs our GT labels from Test5 preprocess)
-    - qualitative viz (CT / STU organs / GT+tumor)
+    - qualitative viz (CT / STU organs / GT+tumor; best-z slice)
   tumor_dice: deferred_until_finetune
 
 results:
   primary_metric: matched_organ_Dice
-  notes: "Research scaffold — fill after sample inference"
+  first_run:
+    date: 2026-08-01
+    model: STU-Net-S
+    cases: [RADCURE-0122, RADCURE-0040, HMR-012, CHUM-023]
+    name_matches: 0
+    matched_organ_dice: nan
+    tumor_dice: n/a
+    note: >
+      Few STU labels on H&N FOV (~0–3/case). Naive string match insufficient.
+      Colab pitfalls documented in research_notebooks/test6_stunet/README.md.
+  notes: >
+    Explore chapter closed. Resume after Test5 with (1) synonym map
+    STU↔H&N then (2) fine-tune for GTVp/GTVn vs Test4/Test5.
