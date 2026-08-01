@@ -30,8 +30,11 @@ set -a && source .env && set +a
 export TEST5_WORK_ROOT=/media/HDD_8TB/xisca/work/retrain_test5
 mkdir -p "$TEST5_WORK_ROOT"
 
-# Splits reference (needs split_manifest.json) — keep this; do not delete
-export TEST5_REFERENCE_DATASET650=/media/HDD_8TB/xisca/work/nnunet_radheck_test_1/Dataset650_TotalSegmentator
+# Output Dataset650 (also used as reference target after Test1 folder was deleted)
+export TEST5_REFERENCE_DATASET650=${TEST5_WORK_ROOT}/Dataset650_TotalSegmentator
+
+# Needed to reconstruct RADCURE Tr/Va/Ts when Dataset650 images* are gone
+export TEST5_RADCURE_DATASET366=/media/HDD_8TB/xisca/work/nnunet_retrain_radcure366/Dataset366_TotalSegmentator
 
 # Original sources (read-only)
 export TEST5_RADCURE_SOURCE=/media/HDD_8TB/xisca/dataset/RadcureComplete/TotalSegmentatorRetrain
@@ -42,6 +45,9 @@ export ORGAN_DICTIONARY_PATH=${TEST5_WORK_ROOT}/radcure_dictionary_test5.json
 # Low-memory HECKTOR full process (if raw cases have no total_segmentator_output/)
 export HECKTOR_CLEANUP_INTERMEDIATES=1
 export HECKTOR_TS_NR_THR_SAVING=1
+
+# Restore recovered Test1 split_manifest.json (repo artifact)
+python -m pipelines.test5.restore_split_reference
 ```
 
 Also set in `experiments/configs/local.yaml`:
@@ -49,6 +55,7 @@ Also set in `experiments/configs/local.yaml`:
 - `RETRAIN_RADHECK_TEST5` → `${TEST5_WORK_ROOT}/nnunet_retrain`
 - `RADHECK_DATASET_TEST5` → `${TEST5_WORK_ROOT}/Dataset650_TotalSegmentator`
 - `TEST5_WORK_ROOT` / `TEST5_REFERENCE_DATASET650`
+- `TEST5_RADCURE_DATASET366`
 - `TEST5_RADCURE_SOURCE` / `TEST5_HECKTOR_SOURCE_CASES_ROOT`
 
 Optional aliases still accepted: `TEST5_RADCURE_SOURCE_MAIN_PATH` (parent
@@ -90,16 +97,22 @@ Outputs:
 
 ## Step 2 — Phase 3: build Dataset650
 
-Same reference Tr/Va/Ts as Test2/3, **minus** QC discards. Default `--link`
-hardlinks files (falls back to copy if cross-device) to save disk.
+Same Tr/Va/Ts membership as Test1 (recovered `split_manifest.json` + Dataset366
+for RADCURE stems + HECKTOR train/val lists), **minus** QC discards.
+Default `--link` hardlinks files to save disk.
 
 ```bash
+# if you have not run restore yet:
+python -m pipelines.test5.restore_split_reference
+
 python -m pipelines.test5.build_dataset650 --dry-run
 python -m pipelines.test5.build_dataset650 --link hardlink
+# if Phase 2 is incomplete:
+# python -m pipelines.test5.build_dataset650 --link hardlink --skip-missing
 ```
 
-If some HECKTOR stems are not transformed yet, they fall back to the **reference**
-Dataset650 labels (not improved bg). Finish Phase 2 for those cases, then rebuild.
+If some HECKTOR stems are not transformed yet, use `--skip-missing` or finish
+Phase 2 first (old reference NIfTIs are gone, so there is no label fallback).
 
 Output: `${TEST5_WORK_ROOT}/Dataset650_TotalSegmentator/`
 

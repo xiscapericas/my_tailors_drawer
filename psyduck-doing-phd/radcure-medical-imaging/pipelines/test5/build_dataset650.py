@@ -2,26 +2,27 @@
 """
 Test5 Phase 3 — build Dataset650 from improved-preprocess transforms.
 
-Uses the **same Tr/Va/Ts membership** as Test2/Test3 (reference Dataset650),
-drops anatomy-QC discards, and prefers Test5 work-root outputs.
+Uses the **same Tr/Va/Ts membership** as Test1 (recovered ``split_manifest.json``).
+If Dataset650 ``images*`` are missing, reconstructs stems from Dataset366 +
+HECKTOR train/val lists (Ts > Tr > Va dedupe). Drops anatomy-QC discards.
 
-Copy mode default is **hardlink** (falls back to copy cross-device) to save disk
-when the previous work trees were deleted for space.
+Copy mode default is **hardlink** (falls back to copy cross-device) to save disk.
 
 Sources (in order):
 
 1. Test5 Phase 2 outputs under ``TEST5_WORK_ROOT``
-2. Optional Test4 work root (only if path exists — usually deleted)
-3. Reference Dataset650 (Test2/Test3) — last resort for missing HECKTOR stems
+2. Optional Test4 work root (only if path exists)
+3. Reference Dataset650 NIfTIs — only if that folder still has images (usually not)
 
 Example:
 
   export TEST5_WORK_ROOT=/media/HDD_8TB/xisca/work/retrain_test5
-  export TEST5_REFERENCE_DATASET650=/media/HDD_8TB/xisca/work/nnunet_radheck_test_1/Dataset650_TotalSegmentator
+  export TEST5_REFERENCE_DATASET650=${TEST5_WORK_ROOT}/Dataset650_TotalSegmentator
   export ORGAN_DICTIONARY_PATH=${TEST5_WORK_ROOT}/radcure_dictionary_test5.json
 
+  python -m pipelines.test5.restore_split_reference
   python -m pipelines.test5.build_dataset650 --dry-run
-  python -m pipelines.test5.build_dataset650 --link
+  python -m pipelines.test5.build_dataset650 --link hardlink
 """
 
 from __future__ import annotations
@@ -47,11 +48,26 @@ if str(_REPO_ROOT) not in sys.path:
 
 from image_processor.conventions import HECKTOR, get_nnunet_case_number
 from pipelines.radheck.build_nnunet_dataset import write_dataset_json
-from pipelines.radheck.nnunet_split_utils import audit_split_overlaps, print_audit, stem_from_image_filename
+from pipelines.radheck.nnunet_split_utils import (
+    audit_split_overlaps,
+    list_stems_in_split,
+    print_audit,
+    stem_from_image_filename,
+)
 from pipelines.test4.build_dataset650 import (
     _build_hecktor_stem_map,
     _list_split_images,
     _radcure_case_id_from_stem,
+)
+
+BUNDLED_SPLIT_MANIFEST = (
+    _REPO_ROOT / "experiments" / "artifacts" / "test1_dataset650_split_manifest.json"
+)
+DEFAULT_REFERENCE_DATASET650 = (
+    "/media/HDD_8TB/xisca/work/retrain_test5/Dataset650_TotalSegmentator"
+)
+DEFAULT_RADCURE_DATASET366 = (
+    "/media/HDD_8TB/xisca/work/nnunet_retrain_radcure366/Dataset366_TotalSegmentator"
 )
 
 
@@ -86,32 +102,54 @@ def _link_or_copy(src: Path, dst: Path, mode: str) -> None:
         shutil.copy2(src, dst)
 
 
-def _resolve_reference_dataset650(reference_dataset650: Path) -> Tuple[Path, dict]:
-    """Load split_manifest; fall back to Test2/Test3 path if needed."""
-    candidates: List[Path] = [reference_dataset650]
-    env_radheck = os.getenv("RADHECK_DATASET", "").strip()
-    if env_radheck:
-        candidates.append(Path(env_radheck))
-    candidates.append(
-        Path("/media/HDD_8TB/xisca/work/nnunet_radheck_test_1/Dataset650_TotalSegmentator")
-    )
+def _load_manifest(path: Path) -> dict:
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
 
-    tried = []
-    for cand in candidates:
-        if not cand:
-            continue
-        cand = cand.resolve() if cand.exists() else cand
-        man = cand / "split_manifest.json"
-        tried.append(str(cand))
-        if man.is_file():
-            with open(man) as f:
-                manifest = json.load(f)
-            if reference_dataset650.exists() and cand != reference_dataset650.resolve():
-                print(
-                    f"NOTE: {reference_dataset650}/split_manifest.json missing.\n"
-                    f"      Using reference with manifest: {cand}"
-                )
-            return cand, manifest
+
+def _resolve_manifest(
+    reference_dataset650: Path,
+    split_manifest: Optional[Path] = None,
+) -> Tuple[Path, dict, str]:
+    """
+    Return (reference_folder, manifest, manifest_path_used).
+
+    Search order:
+      1) explicit --split-manifest / TEST5_SPLIT_MANIFEST
+      2) {reference}/split_manifest.json
+      3) bundled Test1 recovery artifact
+    """
+    tried: List[str] = []
+
+    if split_manifest is not None:
+        sm = Path(split_manifest).expanduser()
+        tried.append(str(sm))
+        if sm.is_file():
+            return reference_dataset650, _load_manifest(sm), str(sm)
+
+    env_sm = os.getenv("TEST5_SPLIT_MANIFEST", "").strip()
+    if env_sm:
+        sm = Path(env_sm).expanduser()
+        tried.append(str(sm))
+        if sm.is_file():
+            return reference_dataset650, _load_manifest(sm), str(sm)
+
+    ref_man = reference_dataset650 / "split_manifest.json"
+    tried.append(str(ref_man))
+    if ref_man.is_file():
+        return reference_dataset650, _load_manifest(ref_man), str(ref_man)
+
+    tried.append(str(BUNDLED_SPLIT_MANIFEST))
+    if BUNDLED_SPLIT_MANIFEST.is_file():
+        print(
+            "NOTE: no split_manifest next to reference Dataset650.\n"
+            f"      Using bundled Test1 recovery: {BUNDLED_SPLIT_MANIFEST}"
+        )
+        return (
+            reference_dataset650,
+            _load_manifest(BUNDLED_SPLIT_MANIFEST),
+            str(BUNDLED_SPLIT_MANIFEST),
+        )
 
     raise FileNotFoundError(
         "split_manifest.json not found.\n"
@@ -119,9 +157,107 @@ def _resolve_reference_dataset650(reference_dataset650: Path) -> Tuple[Path, dic
         + "\n    - ".join(tried)
         + "\n\n"
         "Fix:\n"
-        "  export TEST5_REFERENCE_DATASET650="
-        "/media/HDD_8TB/xisca/work/nnunet_radheck_test_1/Dataset650_TotalSegmentator\n"
+        "  python -m pipelines.test5.restore_split_reference\n"
+        "  # or copy experiments/artifacts/test1_dataset650_split_manifest.json\n"
     )
+
+
+def _reference_has_split_images(reference_dataset650: Path) -> bool:
+    for split in ("Tr", "Va", "Ts"):
+        if _list_split_images(reference_dataset650, split):
+            return True
+    return False
+
+
+def _reconstruct_split_stems(
+    manifest: dict,
+    radcure_dataset366: Optional[Path] = None,
+) -> Dict[str, List[str]]:
+    """
+    Rebuild Tr/Va/Ts stems when Dataset650 images* were deleted.
+
+    RADCURE membership comes from Dataset366; HECKTOR from manifest lists;
+    then apply Ts > Tr > Va dedupe (same priority as Test1).
+    """
+    rad_path = radcure_dataset366
+    if rad_path is None:
+        env = os.getenv("TEST5_RADCURE_DATASET366", "").strip() or os.getenv(
+            "RADCURE_DATASET", ""
+        ).strip()
+        if env:
+            rad_path = Path(env)
+        elif manifest.get("radcure_dataset"):
+            rad_path = Path(manifest["radcure_dataset"])
+        else:
+            rad_path = Path(DEFAULT_RADCURE_DATASET366)
+    rad_path = Path(rad_path).expanduser()
+    if not rad_path.is_dir():
+        raise FileNotFoundError(
+            "Cannot reconstruct splits: Dataset366 not found at "
+            f"{rad_path}. Set TEST5_RADCURE_DATASET366."
+        )
+
+    tr = set(list_stems_in_split(str(rad_path), "Tr"))
+    va = set(list_stems_in_split(str(rad_path), "Va"))
+    ts = set(list_stems_in_split(str(rad_path), "Ts"))
+    print(
+        f"Dataset366 stems: Tr={len(tr)} Va={len(va)} Ts={len(ts)}  ({rad_path})"
+    )
+
+    for cid in manifest.get("hecktor_train_cases") or []:
+        tr.add(_hecktor_stem(str(cid)))
+    for cid in manifest.get("hecktor_val_cases") or []:
+        va.add(_hecktor_stem(str(cid)))
+
+    # Ts > Tr > Va
+    tr -= ts
+    va -= ts
+    va -= tr
+
+    stems = {
+        "Tr": sorted(tr),
+        "Va": sorted(va),
+        "Ts": sorted(ts),
+    }
+    expected = manifest.get("split_counts_after_dedupe") or {}
+    print(
+        "Reconstructed split stems:",
+        {k: len(v) for k, v in stems.items()},
+        "| expected:",
+        expected,
+    )
+    for k, exp in expected.items():
+        got = len(stems.get(k, []))
+        if int(exp) != got:
+            print(
+                f"  WARNING: {k} count {got} != expected {exp} "
+                "(check Dataset366 path / manifest HECKTOR lists)"
+            )
+    return stems
+
+
+def _split_image_names(
+    reference_dataset650: Path,
+    manifest: dict,
+    radcure_dataset366: Optional[Path] = None,
+) -> Tuple[Dict[str, List[str]], str]:
+    """
+    Return ({split: [image filenames]}, source_tag).
+
+    Prefer existing imagesTr/Va/Ts on the reference Dataset650; otherwise
+    reconstruct from Dataset366 + recovered Test1 manifest.
+    """
+    if _reference_has_split_images(reference_dataset650):
+        out = {
+            s: _list_split_images(reference_dataset650, s) for s in ("Tr", "Va", "Ts")
+        }
+        return out, "reference_images"
+
+    stems = _reconstruct_split_stems(manifest, radcure_dataset366=radcure_dataset366)
+    out = {
+        s: [f"{stem}_0000.nii.gz" for stem in stems[s]] for s in ("Tr", "Va", "Ts")
+    }
+    return out, "reconstructed_from_dataset366_and_manifest"
 
 
 def _load_qc_discarded_case_ids(work_root: Path) -> Set[str]:
@@ -338,8 +474,13 @@ def build_dataset650(
     test4_work_root: Optional[Path] = None,
     allow_reference_fallback: bool = True,
     link_mode: str = "hardlink",
+    split_manifest: Optional[Path] = None,
+    radcure_dataset366: Optional[Path] = None,
 ) -> Path:
-    reference_dataset650, manifest = _resolve_reference_dataset650(reference_dataset650)
+    reference_dataset650, manifest, manifest_used = _resolve_manifest(
+        reference_dataset650, split_manifest=split_manifest
+    )
+    print(f"Split manifest: {manifest_used}")
     hecktor_by_stem = _build_hecktor_stem_map(manifest)
     discarded_ids = _load_qc_discarded_case_ids(work_root)
     discarded_stems = _discarded_stems(discarded_ids, hecktor_by_stem)
@@ -379,6 +520,26 @@ def build_dataset650(
     if test4_work_root:
         print(f"Test4 fallback root: {test4_work_root}")
         print(f"  Test4 Dataset650: {test4_dataset650 or '(not found)'}")
+
+    # Resolve membership before possibly wiping dataset_folder (== reference).
+    split_images, split_source = _split_image_names(
+        reference_dataset650,
+        manifest,
+        radcure_dataset366=radcure_dataset366,
+    )
+    print(f"Split stem source: {split_source}")
+
+    ref_has_files = _reference_has_split_images(reference_dataset650)
+    if allow_reference_fallback and (
+        not ref_has_files
+        or reference_dataset650.resolve() == dataset_folder.resolve()
+    ):
+        print(
+            "NOTE: disabling reference Dataset650 label fallback "
+            "(empty or same as output folder)."
+        )
+        allow_reference_fallback = False
+
     if n_hecktor_ready < 50 and allow_reference_fallback:
         print(
             "\nNOTE: Few HECKTOR Test5 outputs yet.\n"
@@ -400,7 +561,7 @@ def build_dataset650(
         print("  e.g.", sorted(discarded_ids)[:8])
 
     for split in ("Tr", "Va", "Ts"):
-        ref_images = _list_split_images(reference_dataset650, split)
+        ref_images = split_images.get(split, [])
         print(f"\n{split}: {len(ref_images)} reference cases")
         if dry_run:
             n_keep = sum(
@@ -485,7 +646,8 @@ def build_dataset650(
         "dataset_folder": str(dataset_folder),
         "dataset_id": dataset_id,
         "link_mode": link_mode,
-        "split_source": "Test2/Test3 reference split_manifest + images{{Tr,Va,Ts}}",
+        "split_source": split_source,
+        "split_manifest_used": manifest_used,
         "label_source": (
             "Prefer Test5 improved transform; optional Test4 if present; "
             "else reference Dataset650"
@@ -523,14 +685,21 @@ def main() -> None:
         "--reference-dataset650",
         default=os.getenv(
             "TEST5_REFERENCE_DATASET650",
-            os.getenv(
-                "TEST4_REFERENCE_DATASET650",
-                os.getenv(
-                    "RADHECK_DATASET",
-                    "/media/HDD_8TB/xisca/work/nnunet_radheck_test_1/Dataset650_TotalSegmentator",
-                ),
-            ),
+            DEFAULT_REFERENCE_DATASET650,
         ),
+    )
+    parser.add_argument(
+        "--split-manifest",
+        default=os.getenv("TEST5_SPLIT_MANIFEST", ""),
+        help="Recovered Test1 split_manifest.json (default: bundled artifact)",
+    )
+    parser.add_argument(
+        "--radcure-dataset366",
+        default=os.getenv(
+            "TEST5_RADCURE_DATASET366",
+            os.getenv("RADCURE_DATASET", DEFAULT_RADCURE_DATASET366),
+        ),
+        help="Dataset366 used to reconstruct RADCURE Tr/Va/Ts when images* missing",
     )
     parser.add_argument(
         "--organ-dictionary-path",
@@ -567,15 +736,15 @@ def main() -> None:
 
     work_root = Path(args.work_root).resolve()
     if not args.reference_dataset650:
-        print("ERROR: set TEST5_REFERENCE_DATASET650 (Test2/Test3 Dataset650)")
+        print("ERROR: set TEST5_REFERENCE_DATASET650")
         sys.exit(1)
 
-    reference = Path(args.reference_dataset650).resolve()
+    reference = Path(args.reference_dataset650).expanduser()
+    reference.mkdir(parents=True, exist_ok=True)
+    reference = reference.resolve()
     organ_dict = Path(
         args.organ_dictionary_path or (work_root / "radcure_dictionary_test5.json")
     ).resolve()
-    if not reference.is_dir():
-        raise FileNotFoundError(f"Reference dataset not found: {reference}")
     if not organ_dict.is_file():
         raise FileNotFoundError(f"Organ dictionary not found: {organ_dict}")
 
@@ -584,12 +753,17 @@ def main() -> None:
     )
     t4_raw = (args.test4_work_root or "").strip()
     t4 = Path(t4_raw) if t4_raw else None
+    sm_raw = (args.split_manifest or "").strip()
+    sm = Path(sm_raw) if sm_raw else None
+    rad366 = Path(args.radcure_dataset366).expanduser() if args.radcure_dataset366 else None
 
     print("=" * 70)
     print("Test5 Phase 3 — build Dataset650")
     print(f"Work root:     {work_root}")
     print(f"Reference:     {reference}")
     print(f"Organ dict:    {organ_dict}")
+    print(f"Split manif.:  {sm or '(auto/bundled)'}")
+    print(f"Dataset366:    {rad366}")
     print(f"Test4 root:    {t4 or '(none)'}")
     print(f"Link mode:     {args.link}")
     print("=" * 70)
@@ -605,6 +779,8 @@ def main() -> None:
         test4_work_root=t4,
         allow_reference_fallback=not bool(args.no_reference_fallback),
         link_mode=str(args.link),
+        split_manifest=sm,
+        radcure_dataset366=rad366,
     )
 
 

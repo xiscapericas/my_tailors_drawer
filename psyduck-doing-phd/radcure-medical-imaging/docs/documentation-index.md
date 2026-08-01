@@ -59,6 +59,7 @@ Single map of **all** docs. Each topic has **one canonical file** — others lin
 | [experiments/README.md](../experiments/README.md) | Guide, results table, **naming convention** (Test4+) |
 | [experiments/configs/](../experiments/configs/) | Per-test YAML (`test1`, `test2`, `test3`, `_template`) |
 | [experiments/configs/local.example.yaml](../experiments/configs/local.example.yaml) | Server path template → copy to `local.yaml` |
+| [experiments/artifacts/](../experiments/artifacts/) | Recovered Test1 `split_manifest.json` for Test5 rebuild |
 
 ### Server runbooks (commands only — metrics in registry)
 
