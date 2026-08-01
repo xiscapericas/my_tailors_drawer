@@ -69,7 +69,7 @@ DEFAULT_RADCURE_SOURCE = (
     "/media/HDD_8TB/xisca/dataset/RadcureComplete/TotalSegmentatorRetrain"
 )
 DEFAULT_HECKTOR_SOURCE = (
-    "/media/HDD_8TB/xisca/dataset/hecktor/test1/unzipped/test1"
+    "/media/HDD_8TB/xisca/work/retrain_test5/hecktor"
 )
 
 

@@ -48,6 +48,7 @@ import json
 import shutil
 import argparse
 from pathlib import Path
+from typing import Optional, Set
 from urllib.parse import urlparse
 
 # Try to load .env
@@ -315,24 +316,65 @@ def _ensure_trained_model_artifacts(
     print(f"Model folder OK: {model_output_dir}")
 
 
+def load_hecktor_test_case_allowlist(
+    manifest_path: Optional[str] = None,
+) -> Optional[Set[str]]:
+    """
+    Load held-out HECKTOR test folder IDs from Test1 split_manifest.
+
+    Uses ``hecktor_excluded_case_folders`` (centers excluded from train/val = Dataset152).
+    """
+    candidates = []
+    if manifest_path:
+        candidates.append(manifest_path)
+    env = os.getenv("TEST5_SPLIT_MANIFEST", "").strip()
+    if env:
+        candidates.append(env)
+    env2 = os.getenv("HECKTOR_TEST_ALLOWLIST_MANIFEST", "").strip()
+    if env2:
+        candidates.append(env2)
+    # Bundled recovery next to repo
+    repo = Path(__file__).resolve().parents[2]
+    candidates.append(
+        str(repo / "experiments" / "artifacts" / "test1_dataset650_split_manifest.json")
+    )
+    for path in candidates:
+        if not path or not os.path.isfile(path):
+            continue
+        with open(path, encoding="utf-8") as f:
+            man = json.load(f)
+        folders = man.get("hecktor_excluded_case_folders") or []
+        if folders:
+            allow = set(str(x) for x in folders)
+            print(f"HECKTOR test allowlist: {len(allow)} cases from {path}")
+            return allow
+    return None
+
+
 def build_nnunet_dataset_from_processed(
     cases_root: str,
     dataset_folder: str,
     dataset_id: str,
     organ_dictionary_path: str,
+    case_allowlist: Optional[set] = None,
 ) -> None:
     """
     Scan cases under cases_root (each case has output/image and output/labels),
     copy into dataset_folder/imagesTs and dataset_folder/labelsTs.
-    Images: case_XXX_0000.nii.gz. Labels: copy to case_XXX.nii.gz (nnUNet expects no _0000 for labels).
+
+    If ``case_allowlist`` is set, only those case folder names (e.g. CHUM-001) are included.
     """
     images_ts = os.path.join(dataset_folder, "imagesTs")
     labels_ts = os.path.join(dataset_folder, "labelsTs")
     os.makedirs(images_ts, exist_ok=True)
     os.makedirs(labels_ts, exist_ok=True)
     case_ids = []
+    skipped_allowlist = 0
     for name in sorted(os.listdir(cases_root)):
         if name.startswith("."):
+            continue
+        if case_allowlist is not None and name not in case_allowlist:
+            skipped_allowlist += 1
             continue
         case_folder = os.path.join(cases_root, name)
         if not os.path.isdir(case_folder):
@@ -363,6 +405,11 @@ def build_nnunet_dataset_from_processed(
         else:
             shutil.copy2(src_lbl, dst_lbl)
         case_ids.append(base)
+    if skipped_allowlist and case_allowlist is not None:
+        print(
+            f"Allowlist filter: skipped {skipped_allowlist} folders not in "
+            f"HECKTOR test set ({len(case_allowlist)} allowed)"
+        )
     if not case_ids:
         # Diagnose: list what's under cases_root so user can see why nothing was found
         try:
@@ -520,8 +567,43 @@ def main():
                 print(f"Using existing unzipped dir as cases root: {cases_root}")
 
         # ----- Step 3: Run image_processor (HECKTOR) -----
-        if not cfg["skip_process"] or cfg["cases_root"]:
-            from image_processor import CaseProcessor, HECKTOR
+        # --skip-process: keep existing output/ (e.g. Test5 work tree under retrain_test5/hecktor)
+        if not cfg["skip_process"]:
+            from image_processor import (
+                CaseProcessor,
+                HECKTOR,
+                TUMOR_LABEL_MODE_MERGED,
+                TUMOR_LABEL_MODE_SEPARATE,
+            )
+            from image_processor.core.mask_generator import MaskGenerator
+
+            # Test4/Test5: export TUMOR_LABEL_MODE=separate BACKGROUND_MODE=improved
+            tumor_mode = (
+                os.getenv("TUMOR_LABEL_MODE", "").strip()
+                or os.getenv("HECKTOR_TUMOR_LABEL_MODE", TUMOR_LABEL_MODE_MERGED)
+            ).lower()
+            if tumor_mode not in (TUMOR_LABEL_MODE_MERGED, TUMOR_LABEL_MODE_SEPARATE):
+                raise ValueError(
+                    f"TUMOR_LABEL_MODE must be merged|separate, got {tumor_mode!r}"
+                )
+            bg_mode = (
+                os.getenv("BACKGROUND_MODE", "").strip()
+                or os.getenv(
+                    "HECKTOR_BACKGROUND_MODE", MaskGenerator.BACKGROUND_MODE_IMPROVED
+                )
+            ).lower()
+            if bg_mode not in (
+                MaskGenerator.BACKGROUND_MODE_IMPROVED,
+                MaskGenerator.BACKGROUND_MODE_LEGACY,
+            ):
+                raise ValueError(
+                    f"BACKGROUND_MODE must be improved|legacy, got {bg_mode!r}"
+                )
+            print(
+                f"HECKTOR preprocess: tumor_label_mode={tumor_mode}  "
+                f"background_mode={bg_mode}"
+            )
+
             # CaseProcessor expects main_path, aws_bucket, aws_folder (not used for HECKTOR but required)
             processor = CaseProcessor(
                 main_path=work_dir,
@@ -531,6 +613,8 @@ def main():
                 cases_root=cases_root,
                 organ_dictionary_path=organ_dict_path,
                 slice_expansion=5,
+                tumor_label_mode=tumor_mode,
+                background_mode=bg_mode,
                 **hecktor_case_processor_memory_kwargs(),
             )
             processor.process_multiple_cases(case_ids=None)
@@ -552,15 +636,28 @@ def main():
                         "Processing ran but no case produced output. Each case folder under HECKTOR_CASES_ROOT must contain "
                         f"{'{case_id}__CT.nii.gz'} and {'{case_id}.nii.gz'}. Sample:\n" + "\n".join(hints)
                     )
+        else:
+            print(f"Skip process — using existing outputs under {cases_root}")
 
         # ----- Step 4: Build nnUNet dataset folder (imagesTs, labelsTs) -----
         dataset_name = f"Dataset{dataset_id}_TotalSegmentator"
         dataset_folder = os.path.join(work_dir, dataset_name)
+        allowlist = None
+        use_allow = os.getenv("HECKTOR_TEST_ALLOWLIST", "1").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+        )
+        if use_allow and str(dataset_id).strip() in ("152", "0152"):
+            allowlist = load_hecktor_test_case_allowlist(
+                os.getenv("TEST5_SPLIT_MANIFEST", "").strip() or None
+            )
         build_nnunet_dataset_from_processed(
             cases_root=cases_root,
             dataset_folder=dataset_folder,
             dataset_id=dataset_id,
             organ_dictionary_path=organ_dict_path or "",
+            case_allowlist=allowlist,
         )
 
     # When --predict-only / --eval-only, dataset_folder and work_dir were set above

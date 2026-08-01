@@ -5,14 +5,16 @@ anatomy QC + canonical organ dictionary) compared to Test4; everything else
 (separate GTVp/GTVn, 700 epochs, NoMirroring, Dataset650, same Tr/Va/Ts family)
 is identical, except QC-discarded cases are dropped from the splits.
 
-**Original sources (do not write into these trees):**
+**Original sources / work trees:**
 
-| Cohort | Path |
-|--------|------|
-| RADCURE | `/media/HDD_8TB/xisca/dataset/RadcureComplete/TotalSegmentatorRetrain/` |
-| HECKTOR | `/media/HDD_8TB/xisca/dataset/hecktor/test1/unzipped/test1/` |
+| Role | Path |
+|------|------|
+| RADCURE source | `/media/HDD_8TB/xisca/dataset/RadcureComplete/TotalSegmentatorRetrain/` |
+| HECKTOR (Test5 transforms) | `/media/HDD_8TB/xisca/work/retrain_test5/hecktor/` |
+| Work root | `/media/HDD_8TB/xisca/work/retrain_test5/` |
 
-Outputs go only under `TEST5_WORK_ROOT` (relabel / full process + Dataset650).
+Phase 2 writes HECKTOR under `TEST5_WORK_ROOT/hecktor` (read CT/mask from whatever
+source you set; do not rely on the old `dataset/hecktor/test1/...` path).
 
 **Memory / disk:** Phase 2 cleans HECKTOR TS intermediates; Phase 3 defaults to
 **hardlinks** into Dataset650. Prefer a fresh empty `TEST5_WORK_ROOT` after
@@ -36,9 +38,9 @@ export TEST5_REFERENCE_DATASET650=${TEST5_WORK_ROOT}/Dataset650_TotalSegmentator
 # Needed to reconstruct RADCURE Tr/Va/Ts when Dataset650 images* are gone
 export TEST5_RADCURE_DATASET366=/media/HDD_8TB/xisca/work/nnunet_retrain_radcure366/Dataset366_TotalSegmentator
 
-# Original sources (read-only)
+# Original / work sources
 export TEST5_RADCURE_SOURCE=/media/HDD_8TB/xisca/dataset/RadcureComplete/TotalSegmentatorRetrain
-export TEST5_HECKTOR_SOURCE_CASES_ROOT=/media/HDD_8TB/xisca/dataset/hecktor/test1/unzipped/test1
+export TEST5_HECKTOR_SOURCE_CASES_ROOT=/media/HDD_8TB/xisca/work/retrain_test5/hecktor
 
 export ORGAN_DICTIONARY_PATH=${TEST5_WORK_ROOT}/radcure_dictionary_test5.json
 
@@ -175,17 +177,66 @@ python train_nnunet.py --step evaluation_visualization
 
 ## Step 6 — Evaluate HECKTOR test (Dataset152)
 
+Held-out HECKTOR test = **Dataset152** (never in Dataset650 train/val).
+
+Processed cases live under:
+
+`/media/HDD_8TB/xisca/work/retrain_test5/hecktor/`
+
+Build Dataset152 from those `output/` folders (skip re-process). By default only
+**held-out test** folders from the Test1 `split_manifest` allowlist are copied
+(`hecktor_excluded_case_folders`) so train/val HECKTOR cases are not evaluated as test.
+
+### 6a — Build Dataset152 from Test5 HECKTOR outputs
+
 ```bash
+export TEST5_WORK_ROOT=/media/HDD_8TB/xisca/work/retrain_test5
+export ORGAN_DICTIONARY_PATH=${TEST5_WORK_ROOT}/radcure_dictionary_test5.json
+
+export HECKTOR_CASES_ROOT=${TEST5_WORK_ROOT}/hecktor
+export NNUNET_WORK_DIR=${TEST5_WORK_ROOT}
+export HECKTOR_DATASET_ID=152
+export DATASET_ID=152
+# allowlist on (default): only Dataset152 test case folders
+export HECKTOR_TEST_ALLOWLIST=1
+
+# Reuse existing Phase 2 outputs — do not re-run TotalSegmentator
+python -m pipelines.hecktor.test_pipeline --skip-download --skip-process --skip-predict
+```
+
+Output: `${TEST5_WORK_ROOT}/Dataset152_TotalSegmentator/{imagesTs,labelsTs}/`
+
+If the allowlist finds **0** cases, your `hecktor/` tree may only contain train/val
+IDs (not the excluded test set). Then either restore the held-out test cases into
+`hecktor/`, or temporarily `export HECKTOR_TEST_ALLOWLIST=0` (eval will include
+whatever is present — check for train leakage).
+
+### 6b — Predict + Dice with the Test5 Dataset650 model
+
+`DATASET_ID=650` is the **trained model** id; `DATASET_FOLDER` is the HECKTOR test set.
+
+```bash
+export TEST5_WORK_ROOT=/media/HDD_8TB/xisca/work/retrain_test5
+export ORGAN_DICTIONARY_PATH=${TEST5_WORK_ROOT}/radcure_dictionary_test5.json
+
 export DATASET_ID=650
-export DATASET_FOLDER=/path/to/Dataset152_TotalSegmentator
+export DATASET_FOLDER=${TEST5_WORK_ROOT}/Dataset152_TotalSegmentator
 export NNUNET_RETRAIN_PATH=${TEST5_WORK_ROOT}/nnunet_retrain
+export NNUNET_WORK_DIR=${TEST5_WORK_ROOT}
 export HECKTOR_EVAL_OUTPUT_DIR=${NNUNET_RETRAIN_PATH}/hecktor_validation
 export NNUNET_TRAINER=nnUNetTrainer_700epochs_NoMirroring
+export NNUNET_CONFIGURATION=3d_fullres
+export NNUNET_FOLD=0
 export nnUNet_compile=false
+export CUDA_VISIBLE_DEVICES=1
+
+mkdir -p "$HECKTOR_EVAL_OUTPUT_DIR"
 
 python -m pipelines.hecktor.test_pipeline --predict-only
 python -m pipelines.hecktor.test_pipeline --eval-only
 ```
+
+Dice / viz land under `$HECKTOR_EVAL_OUTPUT_DIR` (not inside Dataset152).
 
 ---
 
