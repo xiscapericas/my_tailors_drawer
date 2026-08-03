@@ -52,18 +52,15 @@ def ensure_splits_final(
     n_splits: int = 5,
 ) -> str:
     """
-    Create ``splits_final.json`` when missing.
+    Create ``splits_final.json`` when missing or out of sync with ``imagesTr``.
 
     Order:
-      1. Use existing file if present.
+      1. Use existing file if its case pool matches current ``imagesTr``.
       2. Copy from ``NNUNET_SPLITS_REFERENCE`` / ``reference_preprocessed`` and
          keep only cases that exist in the current ``imagesTr`` pool.
       3. Generate a new 5-fold split with nnUNet's ``generate_crossval_split``.
     """
     path = splits_final_path(preprocessed_root, dataset_name)
-    if os.path.isfile(path):
-        return path
-
     case_ids = training_case_ids(dataset_folder)
     if not case_ids:
         raise FileNotFoundError(
@@ -71,13 +68,35 @@ def ensure_splits_final(
         )
     valid = set(case_ids)
 
+    if os.path.isfile(path):
+        with open(path) as f:
+            existing = json.load(f)
+        in_splits: Set[str] = set()
+        for fold in existing:
+            in_splits.update(fold.get("train", []) or [])
+            in_splits.update(fold.get("val", []) or [])
+        extra = in_splits - valid
+        missing = valid - in_splits
+        if not extra and not missing:
+            return path
+        print(
+            "⚠️  splits_final.json out of sync with imagesTr "
+            f"(extra={len(extra)}, missing_from_splits={len(missing)}); regenerating"
+        )
+        os.remove(path)
+
     ref_root = reference_preprocessed or os.getenv("NNUNET_SPLITS_REFERENCE")
     if ref_root:
         src = splits_final_path(ref_root, dataset_name)
         if os.path.isfile(src):
             with open(src) as f:
                 splits = _filter_splits_to_cases(json.load(f), valid)
-            if splits and any(f["train"] or f["val"] for f in splits):
+            # Only keep a copied split if it still covers the full Tr pool
+            covered: Set[str] = set()
+            for fold in splits:
+                covered.update(fold.get("train", []) or [])
+                covered.update(fold.get("val", []) or [])
+            if covered == valid and splits and any(f["train"] or f["val"] for f in splits):
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 with open(path, "w") as f:
                     json.dump(splits, f, indent=2)
@@ -86,6 +105,10 @@ def ensure_splits_final(
                     f"  → {path} ({len(splits)} folds, {len(case_ids)} cases in Tr pool)"
                 )
                 return path
+            print(
+                "⚠️  NNUNET_SPLITS_REFERENCE does not cover the full imagesTr pool "
+                f"({len(covered)}/{len(valid)}); generating a fresh split instead"
+            )
 
     splits = _generate_splits_nnunet(case_ids, seed=seed, n_splits=n_splits)
     os.makedirs(os.path.dirname(path), exist_ok=True)

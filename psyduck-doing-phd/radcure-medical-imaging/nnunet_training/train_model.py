@@ -262,13 +262,17 @@ def verify_preprocessed_for_training(config: TrainingConfig):
             f"{len(missing)} preprocessed case(s) missing under:\n  {plans_dir}\n"
             f"  Examples: {sample}{extra}\n"
             f"  nnUNet_preprocessed in use: {preproc_root}\n\n"
-            "Likely fix:\n"
-            "  1. export NNUNET_USE_LOCAL_PREPROCESS=1   # overrides .env reuse path\n"
-            "     (or comment out NNUNET_PREPROCESSED_PATH in .env)\n"
-            "  2. export NNUNET_RETRAIN_PATH to this experiment's retrain folder\n"
-            "  3. python train_nnunet.py --step prepare --link-raw\n"
-            "  4. python train_nnunet.py --step plan\n"
-            "  5. python train_nnunet.py --step train"
+            "Likely cause: plan/preprocess did not finish for the full imagesTr pool "
+            "(common after expanding Tr beyond the old manifesto).\n\n"
+            "Fix:\n"
+            "  unset NNUNET_SPLITS_REFERENCE   # do not reuse Test3 splits with max-train\n"
+            "  export NNUNET_USE_LOCAL_PREPROCESS=1\n"
+            "  export DATASET_ID=650\n"
+            "  # wipe incomplete preprocess for this dataset, then re-plan:\n"
+            f"  rm -rf {dataset_preproc}\n"
+            "  python train_nnunet.py --step prepare --link-raw\n"
+            "  python train_nnunet.py --step plan\n"
+            "  python train_nnunet.py --step train"
         )
 
     print(
@@ -324,12 +328,12 @@ def main_train():
     # Add nnUNet to path
     add_nnunet_to_path(config.nnunet_path)
 
+    # Setup environment first (install_trainer imports nnUNet path helpers)
+    config.setup_nnunet_environment()
+
     if config.trainer.startswith("nnUNetTrainer_") and config.trainer.endswith("_NoMirroring"):
         print("\nEnsuring custom trainer variants are installed in nnUNet...")
         ensure_trainer_installed(config.trainer, config.nnunet_path)
-    
-    # Setup environment
-    config.setup_nnunet_environment()
 
     print("\nEnsuring splits_final.json exists...")
     ensure_splits_final(
