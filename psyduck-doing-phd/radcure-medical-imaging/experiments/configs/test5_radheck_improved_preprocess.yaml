@@ -1,19 +1,19 @@
 # Test5 — improved preprocessing vs Test4 (no anatomy QC, 700 epochs)
 #
 # One-line rule: Test5 changes preprocessing (improved anatomical background +
-# canonical organ dict; no anatomy QC) compared to test4; tumor labels, trainer,
-# epochs, and Tr/Va/Ts membership stay the same as the Test1 manifesto.
+# canonical organ dict; no anatomy QC) compared to test4; trainer/epochs stay
+# the same; Ts stays the Test1 74-case set; Tr uses all other ready cases.
 
 experiment:
   id: test5
-  name: RADHECK — improved preprocess (bg, no QC) vs Test4
+  name: RADHECK — improved preprocess + max-train (fixed Ts) vs Test4
   status: planned
   changed_from: test4
   hypothesis: >
-    Better anatomical_region / other-tissue (FOV-aware body mask, sagittal L/R
-    symmetry, Z continuity) with separate GTVp/GTVn and a canonical organ
-    dictionary improves GTVp/GTVn Dice vs Test4 on the same split family,
-    without discarding cases via anatomy QC.
+    Better anatomical_region / other-tissue with separate GTVp/GTVn, a canonical
+    organ dictionary, and training on the full ready pool (minus fixed Ts and
+    HECKTOR held-out test) improves GTVp/GTVn Dice vs Test4 on the same 74-case
+    RADCURE test set.
 
 training:
   needs_dataset_build: true

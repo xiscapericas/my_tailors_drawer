@@ -111,6 +111,19 @@ def main() -> None:
         default=os.getenv("TEST5_DATASET_LINK_MODE", "hardlink"),
     )
     parser.add_argument(
+        "--train-all-except-ts",
+        dest="train_all_except_ts",
+        action="store_true",
+        default=True,
+        help="Keep fixed 74 Ts; train on all other ready cases (default)",
+    )
+    parser.add_argument(
+        "--manifest-splits",
+        dest="train_all_except_ts",
+        action="store_false",
+        help="Use original Test1 Tr≈361 / Va≈71 / Ts≈74",
+    )
+    parser.add_argument(
         "--no-hecktor-allowlist",
         action="store_true",
         help="Include every HECKTOR folder with output/ in Dataset152 (unsafe)",
@@ -143,6 +156,14 @@ def main() -> None:
     print(f"Organ dict:  {organ}")
     print(f"Manifest:    {man_path}")
     print(f"Link mode:   {args.link}")
+    print(
+        "Train mode:  "
+        + (
+            "all except fixed Ts"
+            if args.train_all_except_ts
+            else "manifest Tr/Va/Ts"
+        )
+    )
     print("=" * 70)
 
     if not args.skip_650:
@@ -159,6 +180,7 @@ def main() -> None:
             split_manifest=Path(man_path),
             radcure_dataset366=rad366,
             cases_root=cases,
+            train_all_except_ts=bool(args.train_all_except_ts),
         )
 
     if not args.skip_152:

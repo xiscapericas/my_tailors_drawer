@@ -2,8 +2,9 @@
 
 **One-line rule:** Test5 changes **preprocessing** (improved anatomical
 background + separate GTVp/GTVn + canonical organ dictionary; **no anatomy QC**)
-compared to Test4; trainer stays `nnUNetTrainer_700epochs_NoMirroring`, and
-Tr/Va/Ts membership is the **same Test1 manifesto**.
+compared to Test4; trainer stays `nnUNetTrainer_700epochs_NoMirroring`.
+**Ts stays the same 74 cases** for comparison; **Tr uses all other ready cases**
+(not the old manifesto Tr=361).
 
 **Layout (unified cohort — do not split RADCURE / HECKTOR trees):**
 
@@ -104,19 +105,30 @@ cat ${TEST5_WORK_ROOT}/RADHECK_CURRENT/STATUS.json
 
 ## Step 3 — Phase 3: build Dataset650 + Dataset152
 
-Same Tr/Va/Ts as Test1 manifesto. Hardlinks by default.
+**Default train mode:** keep the **same 74 Ts** as Test1 (RADCURE comparison), put
+**all other ready cases** into `imagesTr`, leave `imagesVa` empty, and keep
+HECKTOR held-out test **only** in Dataset152 (not in 650 Tr).
+
+That is why you may see ~1047 cases under `RADHECK_{N}` but only ~361 in the old
+manifesto Tr — the manifesto was a fixed subset; max-train uses the full pool.
 
 ```bash
 python -m pipelines.test5.build_datasets --dry-run
 python -m pipelines.test5.build_datasets --link hardlink
-# if some HECKTOR train/val still missing:
-# python -m pipelines.test5.build_datasets --link hardlink --skip-missing
+# old manifesto Tr≈361 / Va≈71 / Ts≈74:
+# python -m pipelines.test5.build_datasets --link hardlink --manifest-splits
 ```
+
+Expect roughly:
+
+- `imagesTs` ≈ **74** (same as Test1–4)
+- `imagesTr` ≈ ready − 74 − HECKTOR Dataset152 − stem collisions
+- `imagesVa` = **0** (nnUNet fold val comes from `splits_final.json` inside Tr)
 
 Verify:
 
 - `Dataset650_TotalSegmentator/dataset.json` has **GTVp** and **GTVn**
-- `split_manifest.json` → `counts_built` ≈ Tr 361 / Va 71 / Ts 74 (no QC drops)
+- `split_manifest.json` → `counts_built`, `train_all_except_ts: true`
 - `Dataset152_TotalSegmentator/imagesTs` only held-out HECKTOR test folders
 
 Leak check (optional):
