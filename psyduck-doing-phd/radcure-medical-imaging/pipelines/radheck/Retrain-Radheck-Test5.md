@@ -165,12 +165,24 @@ export LOG_DIR=${NNUNET_RETRAIN_PATH}/logs
 export NNUNET_USE_LOCAL_PREPROCESS=1
 export nnUNet_compile=false
 export CUDA_VISIBLE_DEVICES=1
+# Critical: do not leave DATASET_ID=152 from HECKTOR eval in the shell / .env
+unset DATASET_ID
+export DATASET_ID=650
 
 mkdir -p "$NNUNET_RETRAIN_PATH" "$LOG_DIR"
 
 python train_nnunet.py --step prepare --link-raw
 python train_nnunet.py --step plan
 python train_nnunet.py --step train
+```
+
+Confirm before plan:
+
+```bash
+echo "FOLDER=$DATASET_FOLDER"
+echo "ID=${DATASET_ID:-"(auto)"}"
+ls -la ${NNUNET_RETRAIN_PATH}/Dataset650_TotalSegmentator | head
+# should exist (symlink or copy from prepare)
 ```
 
 Optional — same fold assignment as Test3:

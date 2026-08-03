@@ -123,11 +123,19 @@ class TrainingConfig:
             try:
                 # Extract number between Dataset and _TotalSegmentator
                 parts = folder_name.replace('Dataset', '').replace('_TotalSegmentator', '')
-                if not self.dataset_id:
-                    self.dataset_id = parts
+                folder_id = str(parts)
+                env_id = self.dataset_id
+                if env_id and str(env_id) != folder_id:
+                    print(
+                        f"⚠️  DATASET_ID={env_id} conflicts with folder {folder_name}; "
+                        f"using folder ID {folder_id} (unset DATASET_ID to silence)"
+                    )
+                self.dataset_id = folder_id
                 self.dataset_name = folder_name
-            except:
-                raise ValueError(f"Could not extract dataset ID from folder name: {folder_name}")
+            except Exception as exc:
+                raise ValueError(
+                    f"Could not extract dataset ID from folder name: {folder_name}"
+                ) from exc
         else:
             raise ValueError(f"Folder name must be in format DatasetXXX_TotalSegmentator, got: {folder_name}")
         
