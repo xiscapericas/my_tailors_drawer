@@ -259,17 +259,25 @@ def evaluate_predictions(config: TrainingConfig, pred_dir: str):
     # Convert to DataFrame
     res_df = pd.DataFrame(res)
 
-    # Optional cohort breakdown (Test5 unified Ts: ts_case_map.json)
-    ts_map_path = Path(config.dataset_folder) / "ts_case_map.json"
-    if ts_map_path.is_file() and "subject" in res_df.columns:
+    # Optional cohort / original-id columns (Test5: ts_case_map.json / case_map.json)
+    map_path = Path(config.dataset_folder) / "ts_case_map.json"
+    if not map_path.is_file():
+        map_path = Path(config.dataset_folder) / "case_map.json"
+    if map_path.is_file() and "subject" in res_df.columns:
         try:
-            with open(ts_map_path, encoding="utf-8") as f:
+            with open(map_path, encoding="utf-8") as f:
                 ts_map = json.load(f)
             res_df["cohort"] = res_df["subject"].map(
                 lambda s: (ts_map.get(s) or {}).get("cohort", "unknown")
             )
+            res_df["case_id"] = res_df["subject"].map(
+                lambda s: (ts_map.get(s) or {}).get("case_id")
+            )
+            res_df["center"] = res_df["subject"].map(
+                lambda s: (ts_map.get(s) or {}).get("center")
+            )
         except Exception as exc:
-            print(f"⚠️  Could not load ts_case_map.json for cohort split: {exc}")
+            print(f"⚠️  Could not load case map for cohort split: {exc}")
     
     # Print results
     print("\n" + "=" * 70)

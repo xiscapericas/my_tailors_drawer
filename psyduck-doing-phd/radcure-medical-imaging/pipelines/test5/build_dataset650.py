@@ -78,18 +78,87 @@ def _case_id_to_stem(case_id: str) -> str:
     return f"case_{get_nnunet_case_number(case_id, HECKTOR)}"
 
 
-def _hecktor_ts_stem(case_id: str) -> str:
+def _hecktor_unique_stem(case_id: str) -> str:
     """
-    Unique stem for HECKTOR held-out test in Dataset650 imagesTs.
+    Unique stem for any HECKTOR case in Dataset650.
 
-    Avoids collisions with RADCURE ``case_XXXX`` and between centers that share
-    a numeric suffix (CHUM-017 vs HGJ-017).
+    Encodes the original folder id so ``case_012`` never loses CHUM vs HRC:
+    ``CHUM-012`` → ``case_hek_CHUM_012``.
     """
     return f"case_hek_{case_id.replace('-', '_')}"
 
 
+def _hecktor_ts_stem(case_id: str) -> str:
+    """Alias kept for call sites — same as unique HECKTOR stem."""
+    return _hecktor_unique_stem(case_id)
+
+
+def _stem_for_case(case_id: str) -> str:
+    """nnUNet stem used when placing a case into Dataset650."""
+    if case_id.startswith("RADCURE-"):
+        return _case_id_to_stem(case_id)
+    return _hecktor_unique_stem(case_id)
+
+
+def _center_from_case_id(case_id: str) -> Optional[str]:
+    if case_id.startswith("RADCURE-"):
+        return "RADCURE"
+    if "-" in case_id:
+        return case_id.split("-", 1)[0]
+    return None
+
+
+def _case_map_entry(
+    case_id: str, *, split: str, role: str, stem: str
+) -> dict:
+    return {
+        "stem": stem,
+        "case_id": case_id,
+        "cohort": "radcure" if case_id.startswith("RADCURE-") else "hecktor",
+        "center": _center_from_case_id(case_id),
+        "split": split,
+        "role": role,
+    }
+
+
 def _cohort_for_case(case_id: str) -> str:
     return "radcure" if case_id.startswith("RADCURE-") else "hecktor"
+
+
+def _infer_case_id_from_stem(
+    stem: str, ready_ids: Set[str]
+) -> Tuple[Optional[str], List[str]]:
+    """
+    Recover original case_id from a Dataset650 stem.
+
+    Returns (best_case_id_or_None, candidate_ids).
+    """
+    if stem.startswith("case_hek_"):
+        raw = stem[len("case_hek_") :]
+        if "_" not in raw:
+            return raw, [raw]
+        center, num = raw.split("_", 1)
+        cid = f"{center}-{num}"
+        return cid, [cid]
+
+    if not stem.startswith("case_"):
+        return None, []
+
+    num = stem[len("case_") :]
+    rad = f"RADCURE-{num}"
+    if rad in ready_ids:
+        return rad, [rad]
+
+    candidates = sorted(
+        cid
+        for cid in ready_ids
+        if (not cid.startswith("RADCURE-"))
+        and "-" in cid
+        and cid.split("-")[-1] == num
+    )
+    if len(candidates) == 1:
+        return candidates[0], candidates
+    return None, candidates
 
 
 def _list_ready_case_ids(cases_root: Path) -> List[str]:
@@ -105,6 +174,45 @@ def _list_ready_case_ids(cases_root: Path) -> List[str]:
     return out
 
 
+def _build_tr_case_map_from_existing(
+    dataset_folder: Path, cases_root: Path
+) -> Dict[str, dict]:
+    """Best-effort Tr map for an already-built Dataset650 (e.g. before case_hek_)."""
+    ready = set(_list_ready_case_ids(cases_root))
+    out: Dict[str, dict] = {}
+    img_dir = dataset_folder / "imagesTr"
+    if not img_dir.is_dir():
+        return out
+    ambiguous = 0
+    for path in sorted(img_dir.glob("*_0000.nii.gz")):
+        stem = stem_from_image_filename(path.name)
+        cid, cands = _infer_case_id_from_stem(stem, ready)
+        if cid is None:
+            ambiguous += 1
+            out[stem] = {
+                "stem": stem,
+                "case_id": None,
+                "cohort": "unknown",
+                "center": None,
+                "split": "Tr",
+                "role": "train_ambiguous",
+                "candidates": cands,
+                "note": "Could not uniquely recover original case_id from stem",
+            }
+            continue
+        entry = _case_map_entry(cid, split="Tr", role="train", stem=stem)
+        if len(cands) > 1:
+            entry["candidates"] = cands
+            entry["note"] = "Multiple HECKTOR ids share this numeric stem"
+        out[stem] = entry
+    if ambiguous:
+        print(
+            f"WARNING: {ambiguous} imagesTr stem(s) could not be uniquely mapped "
+            "to an original case id (legacy case_XXX HECKTOR naming)."
+        )
+    return out
+
+
 def _max_train_membership(
     *,
     cases_root: Path,
@@ -115,18 +223,21 @@ def _max_train_membership(
     """
     Keep manifesto RADCURE Ts; put every other ready case into Tr; Va empty.
 
-    When ``include_hecktor_test_in_ts`` (default), HECKTOR held-out test folders
-    also go into Dataset650 ``imagesTs`` (unique ``case_hek_*`` stems) so one
-    evaluate covers RADCURE + HECKTOR.
+    HECKTOR cases always get unique ``case_hek_{CENTER}_{NUM}`` stems so the
+    original folder id (CHUM / HRC / …) is recoverable from the filename and
+    from ``case_map.json``.
 
-    Returns ({split: [(stem, case_id), ...]}, stats, ts_case_map).
+    When ``include_hecktor_test_in_ts`` (default), HECKTOR held-out test folders
+    also go into Dataset650 ``imagesTs``.
+
+    Returns ({split: [(stem, case_id), ...]}, stats, case_map).
     """
     ts_stems = {stem_from_image_filename(n) for n in ts_image_names}
     excluded = set(str(x) for x in (manifest.get("hecktor_excluded_case_folders") or []))
 
     tr_pairs: List[Tuple[str, str]] = []
     ts_pairs: List[Tuple[str, str]] = []
-    ts_case_map: Dict[str, dict] = {}
+    case_map: Dict[str, dict] = {}
     stem_owner: Dict[str, str] = {}
     stats = {
         "ready": 0,
@@ -141,59 +252,56 @@ def _max_train_membership(
 
     ready = set(_list_ready_case_ids(cases_root))
 
-    for case_id in sorted(ready):
-        stats["ready"] += 1
-        stem = _case_id_to_stem(case_id)
-
-        if case_id in excluded:
-            if not include_hecktor_test_in_ts:
-                continue
-            hstem = _hecktor_ts_stem(case_id)
-            if hstem in stem_owner:
-                stats["stem_collision_skipped"] += 1
-                print(
-                    f"  WARNING: stem {hstem} already used by {stem_owner[hstem]}; "
-                    f"skipping {case_id}"
-                )
-                continue
-            stem_owner[hstem] = case_id
-            ts_pairs.append((hstem, case_id))
-            ts_case_map[hstem] = {
-                "case_id": case_id,
-                "cohort": "hecktor",
-                "role": "held_out_test",
-            }
-            stats["to_ts_hecktor"] += 1
-            stats["to_ts"] += 1
-            continue
-
-        if case_id.startswith("RADCURE-") and stem in ts_stems:
-            ts_pairs.append((stem, case_id))
-            ts_case_map[stem] = {
-                "case_id": case_id,
-                "cohort": "radcure",
-                "role": "manifest_ts",
-            }
-            stats["to_ts_radcure"] += 1
-            stats["to_ts"] += 1
-            continue
-
-        # Do not put HECKTOR (or extra RADCURE) into Tr if stem is reserved for Ts
-        if stem in ts_stems:
-            stats["stem_blocked_by_ts"] += 1
-            continue
-
+    def _claim(stem: str, case_id: str, split: str, role: str) -> bool:
         if stem in stem_owner:
             stats["stem_collision_skipped"] += 1
             print(
                 f"  WARNING: stem {stem} already used by {stem_owner[stem]}; "
                 f"skipping {case_id}"
             )
+            return False
+        stem_owner[stem] = case_id
+        case_map[stem] = _case_map_entry(
+            case_id, split=split, role=role, stem=stem
+        )
+        if split == "Tr":
+            tr_pairs.append((stem, case_id))
+            stats["to_tr"] += 1
+        else:
+            ts_pairs.append((stem, case_id))
+            stats["to_ts"] += 1
+            if role == "held_out_test":
+                stats["to_ts_hecktor"] += 1
+            else:
+                stats["to_ts_radcure"] += 1
+        return True
+
+    for case_id in sorted(ready):
+        stats["ready"] += 1
+
+        if case_id in excluded:
+            if not include_hecktor_test_in_ts:
+                continue
+            _claim(_hecktor_unique_stem(case_id), case_id, "Ts", "held_out_test")
             continue
 
-        stem_owner[stem] = case_id
-        tr_pairs.append((stem, case_id))
-        stats["to_tr"] += 1
+        stem = _stem_for_case(case_id)
+
+        if case_id.startswith("RADCURE-") and _case_id_to_stem(case_id) in ts_stems:
+            _claim(_case_id_to_stem(case_id), case_id, "Ts", "manifest_ts")
+            continue
+
+        # Block HECKTOR/extra RADCURE from Tr if their *legacy* numeric stem
+        # collides with a reserved RADCURE Ts stem (case_0123).
+        legacy = _case_id_to_stem(case_id)
+        if legacy in ts_stems and not case_id.startswith("RADCURE-"):
+            # HECKTOR unique stem is fine even if legacy numeric overlaps Ts
+            pass
+        elif legacy in ts_stems and case_id.startswith("RADCURE-"):
+            stats["stem_blocked_by_ts"] += 1
+            continue
+
+        _claim(stem, case_id, "Tr", "train")
 
     # Ensure manifesto RADCURE Ts stems appear even if listing order differed
     have_ts = {s for s, _ in ts_pairs}
@@ -202,14 +310,8 @@ def _max_train_membership(
         if stem in have_ts:
             continue
         case_id = _radcure_case_id_from_stem(stem)
-        ts_pairs.append((stem, case_id))
-        ts_case_map[stem] = {
-            "case_id": case_id,
-            "cohort": "radcure",
-            "role": "manifest_ts",
-        }
-        stats["to_ts_radcure"] += 1
-        stats["to_ts"] += 1
+        if _claim(stem, case_id, "Ts", "manifest_ts"):
+            have_ts.add(stem)
 
     if include_hecktor_test_in_ts:
         for case_id in sorted(excluded):
@@ -224,7 +326,7 @@ def _max_train_membership(
             "Ts": sorted(ts_pairs, key=lambda x: x[0]),
         },
         stats,
-        ts_case_map,
+        case_map,
     )
 
 
@@ -812,10 +914,10 @@ def build_dataset650(
 
     max_train_pairs: Optional[Dict[str, List[Tuple[str, str]]]] = None
     max_train_stats: Optional[Dict[str, int]] = None
-    ts_case_map: Dict[str, dict] = {}
+    case_map: Dict[str, dict] = {}
     if train_all_except_ts:
         assert unified_cases is not None
-        max_train_pairs, max_train_stats, ts_case_map = _max_train_membership(
+        max_train_pairs, max_train_stats, case_map = _max_train_membership(
             cases_root=unified_cases,
             manifest=manifest,
             ts_image_names=split_images.get("Ts", []),
@@ -1035,7 +1137,10 @@ def build_dataset650(
         "include_hecktor_test_in_ts": include_hecktor_test_in_ts,
         "ts_only_refresh": ts_only,
         "max_train_stats": max_train_stats,
-        "ts_case_map": ts_case_map,
+        "case_map": case_map,
+        "ts_case_map": {
+            k: v for k, v in case_map.items() if v.get("split") == "Ts"
+        },
         "label_source": (
             "Prefer Test5 improved transform; optional Test4 if present; "
             "else reference Dataset650"
@@ -1051,8 +1156,9 @@ def build_dataset650(
         "background_mode": "improved_where_test5_relabel_exists",
         "anatomy_qc": False,
         "fixed_ts_note": (
-            "Ts = Test1 RADCURE 74 + HECKTOR held-out (case_hek_* stems); "
-            "Tr = all other ready RADHECK cases. Single evaluate on imagesTs."
+            "Ts = Test1 RADCURE 74 + HECKTOR held-out; HECKTOR stems are "
+            "case_hek_{CENTER}_{NUM} so original ids are never ambiguous. "
+            "Full case_map.json covers Tr+Ts."
             if train_all_except_ts and include_hecktor_test_in_ts
             else (
                 "Ts kept identical to Test1 manifesto for RADCURE comparison; "
@@ -1066,12 +1172,44 @@ def build_dataset650(
     with open(man_path, "w") as f:
         json.dump(out_manifest, f, indent=2)
     print(f"\nWrote {man_path}")
-    if ts_case_map and not dry_run:
-        map_path = dataset_folder / "ts_case_map.json"
+    if case_map and not dry_run:
+        # Merge / recover Tr provenance (important for --ts-only after a prior train)
+        merged = dict(case_map)
+        if ts_only and unified_cases is not None:
+            existing_path = dataset_folder / "case_map.json"
+            prior: Dict[str, dict] = {}
+            if existing_path.is_file():
+                with open(existing_path, encoding="utf-8") as f:
+                    prior = json.load(f)
+            tr_prior = {k: v for k, v in prior.items() if v.get("split") == "Tr"}
+            if not tr_prior:
+                tr_prior = _build_tr_case_map_from_existing(dataset_folder, unified_cases)
+            for stem, row in tr_prior.items():
+                if stem not in merged:
+                    merged[stem] = row
+        map_path = dataset_folder / "case_map.json"
         with open(map_path, "w") as f:
-            json.dump(ts_case_map, f, indent=2)
+            json.dump(merged, f, indent=2)
             f.write("\n")
-        print(f"Wrote {map_path} ({len(ts_case_map)} test cases)")
+        ts_only_map = {k: v for k, v in merged.items() if v.get("split") == "Ts"}
+        ts_path = dataset_folder / "ts_case_map.json"
+        with open(ts_path, "w") as f:
+            json.dump(ts_only_map, f, indent=2)
+            f.write("\n")
+        print(
+            f"Wrote {map_path} ({len(merged)} stems) and "
+            f"{ts_path} ({len(ts_only_map)} test stems)"
+        )
+        bad = [
+            s
+            for s, row in merged.items()
+            if row.get("cohort") == "hecktor" and not str(s).startswith("case_hek_")
+        ]
+        if bad:
+            print(
+                f"WARNING: {len(bad)} HECKTOR stem(s) lack case_hek_ prefix "
+                f"(ambiguous legacy names). e.g. {bad[:5]}"
+            )
     print(f"Counts: {counts}")
     print(f"Done: {dataset_folder}")
     return dataset_folder
