@@ -103,33 +103,34 @@ cat ${TEST5_WORK_ROOT}/RADHECK_CURRENT/STATUS.json
 
 ---
 
-## Step 3 — Phase 3: build Dataset650 + Dataset152
+## Step 3 — Phase 3: build Dataset650 (one dataset, unified test)
 
-**Default train mode:** keep the **same 74 Ts** as Test1 (RADCURE comparison), put
-**all other ready cases** into `imagesTr`, leave `imagesVa` empty, and keep
-HECKTOR held-out test **only** in Dataset152 (not in 650 Tr).
-
-That is why you may see ~1047 cases under `RADHECK_{N}` but only ~361 in the old
-manifesto Tr — the manifesto was a fixed subset; max-train uses the full pool.
+**Default:** keep the **same 74 RADCURE Ts**, put **all other ready cases** into
+`imagesTr`, and also put **HECKTOR held-out test** into the same `imagesTs`
+(stems `case_hek_*`). One `evaluate` then covers both cohorts.
 
 ```bash
 python -m pipelines.test5.build_datasets --dry-run
 python -m pipelines.test5.build_datasets --link hardlink
-# old manifesto Tr≈361 / Va≈71 / Ts≈74:
-# python -m pipelines.test5.build_datasets --link hardlink --manifest-splits
+```
+
+If the model is **already trained** and you only need to add HECKTOR to Ts:
+
+```bash
+python -m pipelines.test5.build_datasets --ts-only --link hardlink
 ```
 
 Expect roughly:
 
-- `imagesTs` ≈ **74** (same as Test1–4)
-- `imagesTr` ≈ ready − 74 − HECKTOR Dataset152 − stem collisions
-- `imagesVa` = **0** (nnUNet fold val comes from `splits_final.json` inside Tr)
+- `imagesTs` ≈ **74 RADCURE + HECKTOR held-out** (see `ts_case_map.json`)
+- `imagesTr` ≈ ready − those test cases − stem collisions
+- `imagesVa` = **0**
 
 Verify:
 
 - `Dataset650_TotalSegmentator/dataset.json` has **GTVp** and **GTVn**
-- `split_manifest.json` → `counts_built`, `train_all_except_ts: true`
-- `Dataset152_TotalSegmentator/imagesTs` only held-out HECKTOR test folders
+- `ts_case_map.json` lists `cohort: radcure|hecktor` per stem
+- No separate Dataset152 required (optional: `--also-dataset152`)
 
 Leak check (optional):
 
@@ -193,43 +194,25 @@ export NNUNET_SPLITS_REFERENCE=/media/HDD_8TB/xisca/work/nnunet_radheck_test_1_r
 
 ---
 
-## Step 6 — Evaluate RADCURE test (Dataset650 Ts)
+## Step 6 — Evaluate (one run: RADCURE + HECKTOR test)
+
+All test cases live in Dataset650 `imagesTs` (RADCURE manifesto Ts + HECKTOR
+held-out as `case_hek_*`). Metrics print overall and per-cohort when
+`ts_case_map.json` is present.
 
 ```bash
 export DATASET_FOLDER=${TEST5_WORK_ROOT}/Dataset650_TotalSegmentator
 export NNUNET_RETRAIN_PATH=${TEST5_WORK_ROOT}/nnunet_retrain
 export NNUNET_TRAINER=nnUNetTrainer_700epochs_NoMirroring
+export ORGAN_DICTIONARY_PATH=${TEST5_WORK_ROOT}/organ_dictionary_test5.json
+unset DATASET_ID
+export DATASET_ID=650
 
 python train_nnunet.py --step evaluate
 python train_nnunet.py --step evaluation_visualization
 ```
 
----
-
-## Step 7 — Evaluate HECKTOR test (Dataset152)
-
-`DATASET_ID=650` is the **trained model**; `DATASET_FOLDER` is Dataset152.
-
-```bash
-export DATASET_ID=650
-export DATASET_FOLDER=${TEST5_WORK_ROOT}/Dataset152_TotalSegmentator
-export NNUNET_RETRAIN_PATH=${TEST5_WORK_ROOT}/nnunet_retrain
-export NNUNET_WORK_DIR=${TEST5_WORK_ROOT}
-export HECKTOR_EVAL_OUTPUT_DIR=${NNUNET_RETRAIN_PATH}/hecktor_validation
-export NNUNET_TRAINER=nnUNetTrainer_700epochs_NoMirroring
-export NNUNET_CONFIGURATION=3d_fullres
-export NNUNET_FOLD=0
-export nnUNet_compile=false
-export CUDA_VISIBLE_DEVICES=1
-export ORGAN_DICTIONARY_PATH=${TEST5_WORK_ROOT}/organ_dictionary_test5.json
-
-mkdir -p "$HECKTOR_EVAL_OUTPUT_DIR"
-
-python -m pipelines.hecktor.test_pipeline --predict-only
-python -m pipelines.hecktor.test_pipeline --eval-only
-```
-
-Dice / viz land under `$HECKTOR_EVAL_OUTPUT_DIR`.
+Dice CSV: `${LOG_DIR}/evaluation_d650.csv` (includes `cohort` when mapped).
 
 ---
 

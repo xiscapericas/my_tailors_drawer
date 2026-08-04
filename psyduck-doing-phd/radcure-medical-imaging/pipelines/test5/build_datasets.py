@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Test5 Phase 3 — build Dataset650 + Dataset152 from unified RADHECK_{N}/cases/.
+Test5 Phase 3 — build one Dataset650 from unified RADHECK_{N}/cases/.
 
-  Dataset650 — Test1 Tr/Va/Ts manifesto (RADCURE + HECKTOR train/val)
-  Dataset152 — held-out HECKTOR test (manifest hecktor_excluded_case_folders)
+Default:
+  - Tr = all ready cases except fixed RADCURE Ts (+ optional HECKTOR test)
+  - Ts = RADCURE manifesto 74 **plus** HECKTOR held-out test (``case_hek_*``)
+  - Dataset152 is **not** built (one evaluate covers both cohorts)
 
-Example:
+Example (after training — refresh test set only):
 
-  export TEST5_WORK_ROOT=/media/HDD_8TB/xisca/work/retrain_test5
-  python -m pipelines.test5.build_datasets --dry-run
-  python -m pipelines.test5.build_datasets --link hardlink
+  python -m pipelines.test5.build_datasets --ts-only --link hardlink
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ def _resolve_organ_dict(work: Path, explicit: str) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Test5: build Dataset650 + Dataset152 from RADHECK_{N}/cases"
+        description="Test5: build unified Dataset650 from RADHECK_{N}/cases"
     )
     parser.add_argument("--work-root", default=str(default_work_root()))
     parser.add_argument("--cases-root", default=os.getenv("TEST5_CASES_ROOT", ""))
@@ -99,7 +99,11 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--skip-missing", action="store_true")
     parser.add_argument("--skip-650", action="store_true")
-    parser.add_argument("--skip-152", action="store_true")
+    parser.add_argument(
+        "--also-dataset152",
+        action="store_true",
+        help="Also build legacy Dataset152 (not needed for unified evaluate)",
+    )
     parser.add_argument(
         "--no-reference-fallback",
         action="store_true",
@@ -115,7 +119,7 @@ def main() -> None:
         dest="train_all_except_ts",
         action="store_true",
         default=True,
-        help="Keep fixed 74 Ts; train on all other ready cases (default)",
+        help="Keep fixed 74 RADCURE Ts; train on all other ready cases (default)",
     )
     parser.add_argument(
         "--manifest-splits",
@@ -124,9 +128,27 @@ def main() -> None:
         help="Use original Test1 Tr≈361 / Va≈71 / Ts≈74",
     )
     parser.add_argument(
+        "--include-hecktor-test-in-ts",
+        dest="include_hecktor_test_in_ts",
+        action="store_true",
+        default=True,
+        help="Put HECKTOR held-out test into Dataset650 imagesTs (default)",
+    )
+    parser.add_argument(
+        "--hecktor-test-to-152",
+        dest="include_hecktor_test_in_ts",
+        action="store_false",
+        help="Legacy split: HECKTOR test only in Dataset152",
+    )
+    parser.add_argument(
+        "--ts-only",
+        action="store_true",
+        help="Refresh imagesTs/labelsTs only (keep Tr; no retrain)",
+    )
+    parser.add_argument(
         "--no-hecktor-allowlist",
         action="store_true",
-        help="Include every HECKTOR folder with output/ in Dataset152 (unsafe)",
+        help="With --also-dataset152: include every HECKTOR folder (unsafe)",
     )
     args = parser.parse_args()
 
@@ -149,7 +171,7 @@ def main() -> None:
     )
 
     print("=" * 70)
-    print("Test5 Phase 3 — build Dataset650 + Dataset152")
+    print("Test5 Phase 3 — unified Dataset650 (RADCURE + HECKTOR test in Ts)")
     print(f"Work root:   {work}")
     print(f"RADHECK:     {radheck}")
     print(f"Cases:       {cases}")
@@ -164,6 +186,16 @@ def main() -> None:
             else "manifest Tr/Va/Ts"
         )
     )
+    print(
+        "Test set:    "
+        + (
+            "RADCURE Ts + HECKTOR held-out → imagesTs"
+            if args.include_hecktor_test_in_ts
+            else "RADCURE Ts only"
+        )
+    )
+    if args.ts_only:
+        print("Refresh:     Ts only (Tr untouched)")
     print("=" * 70)
 
     if not args.skip_650:
@@ -181,19 +213,16 @@ def main() -> None:
             radcure_dataset366=rad366,
             cases_root=cases,
             train_all_except_ts=bool(args.train_all_except_ts),
+            include_hecktor_test_in_ts=bool(args.include_hecktor_test_in_ts),
+            ts_only=bool(args.ts_only),
         )
 
-    if not args.skip_152:
-        print("\n--- Dataset152 (HECKTOR held-out test) ---")
+    if args.also_dataset152:
+        print("\n--- Dataset152 (legacy HECKTOR-only test) ---")
         ds152 = work / "Dataset152_TotalSegmentator"
         allowlist = None
         if not args.no_hecktor_allowlist:
             allowlist = load_hecktor_test_case_allowlist(manifest_path=man_path)
-            if not allowlist:
-                print(
-                    "WARNING: empty HECKTOR test allowlist — "
-                    "Dataset152 would be empty. Check split_manifest."
-                )
         if args.dry_run:
             n = 0
             for name in sorted(os.listdir(cases)):
@@ -213,8 +242,10 @@ def main() -> None:
             )
             print(f"Done: {ds152}")
 
-    print("\nNext: train with NNUNET_TRAINER=nnUNetTrainer_700epochs_NoMirroring")
-    print("  See pipelines/radheck/Retrain-Radheck-Test5.md")
+    print("\nNext (single evaluate on Dataset650 imagesTs):")
+    print("  export DATASET_FOLDER=${TEST5_WORK_ROOT}/Dataset650_TotalSegmentator")
+    print("  export DATASET_ID=650")
+    print("  python train_nnunet.py --step evaluate")
 
 
 if __name__ == "__main__":

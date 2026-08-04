@@ -7,6 +7,7 @@ This module handles:
 """
 
 import os
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -257,6 +258,18 @@ def evaluate_predictions(config: TrainingConfig, pred_dir: str):
     
     # Convert to DataFrame
     res_df = pd.DataFrame(res)
+
+    # Optional cohort breakdown (Test5 unified Ts: ts_case_map.json)
+    ts_map_path = Path(config.dataset_folder) / "ts_case_map.json"
+    if ts_map_path.is_file() and "subject" in res_df.columns:
+        try:
+            with open(ts_map_path, encoding="utf-8") as f:
+                ts_map = json.load(f)
+            res_df["cohort"] = res_df["subject"].map(
+                lambda s: (ts_map.get(s) or {}).get("cohort", "unknown")
+            )
+        except Exception as exc:
+            print(f"⚠️  Could not load ts_case_map.json for cohort split: {exc}")
     
     # Print results
     print("\n" + "=" * 70)
@@ -264,7 +277,7 @@ def evaluate_predictions(config: TrainingConfig, pred_dir: str):
     print("=" * 70)
     
     for metric in ["dice", "surface_dice_3"]:
-        print(f"\n{metric.upper()} Scores:")
+        print(f"\n{metric.upper()} Scores (all test cases):")
         res_all_rois = []
         for roi_name in class_map.values():
             col_name = f"{metric}-{roi_name}"
@@ -278,6 +291,21 @@ def evaluate_predictions(config: TrainingConfig, pred_dir: str):
         if res_all_rois:
             overall_mean = np.array(res_all_rois).mean()
             print(f"  {'Overall Mean':30s}: {overall_mean:.4f}")
+
+        if "cohort" in res_df.columns:
+            for cohort in sorted(res_df["cohort"].dropna().unique()):
+                sub = res_df[res_df["cohort"] == cohort]
+                print(f"\n{metric.upper()} — cohort={cohort} (n_subjects={len(sub)}):")
+                for roi_name in class_map.values():
+                    col_name = f"{metric}-{roi_name}"
+                    if col_name not in sub.columns:
+                        continue
+                    row_wo_nan = sub[col_name].dropna()
+                    if len(row_wo_nan) > 0:
+                        print(
+                            f"  {roi_name:30s}: {row_wo_nan.mean():.4f} "
+                            f"(n={len(row_wo_nan)})"
+                        )
     
     # Save results to CSV
     results_file = os.path.join(config.log_dir, f'evaluation_d{config.dataset_id}.csv')

@@ -78,6 +78,20 @@ def _case_id_to_stem(case_id: str) -> str:
     return f"case_{get_nnunet_case_number(case_id, HECKTOR)}"
 
 
+def _hecktor_ts_stem(case_id: str) -> str:
+    """
+    Unique stem for HECKTOR held-out test in Dataset650 imagesTs.
+
+    Avoids collisions with RADCURE ``case_XXXX`` and between centers that share
+    a numeric suffix (CHUM-017 vs HGJ-017).
+    """
+    return f"case_hek_{case_id.replace('-', '_')}"
+
+
+def _cohort_for_case(case_id: str) -> str:
+    return "radcure" if case_id.startswith("RADCURE-") else "hecktor"
+
+
 def _list_ready_case_ids(cases_root: Path) -> List[str]:
     out: List[str] = []
     if not cases_root.is_dir():
@@ -96,38 +110,71 @@ def _max_train_membership(
     cases_root: Path,
     manifest: dict,
     ts_image_names: List[str],
-) -> Tuple[Dict[str, List[Tuple[str, str]]], Dict[str, int]]:
+    include_hecktor_test_in_ts: bool = True,
+) -> Tuple[Dict[str, List[Tuple[str, str]]], Dict[str, int], Dict[str, dict]]:
     """
-    Keep manifesto Ts; put every other ready case into Tr; Va empty.
+    Keep manifesto RADCURE Ts; put every other ready case into Tr; Va empty.
 
-    HECKTOR held-out test folders (Dataset152) are excluded from Dataset650.
-    Returns ({split: [(stem, case_id), ...]}, stats).
+    When ``include_hecktor_test_in_ts`` (default), HECKTOR held-out test folders
+    also go into Dataset650 ``imagesTs`` (unique ``case_hek_*`` stems) so one
+    evaluate covers RADCURE + HECKTOR.
+
+    Returns ({split: [(stem, case_id), ...]}, stats, ts_case_map).
     """
     ts_stems = {stem_from_image_filename(n) for n in ts_image_names}
     excluded = set(str(x) for x in (manifest.get("hecktor_excluded_case_folders") or []))
 
     tr_pairs: List[Tuple[str, str]] = []
     ts_pairs: List[Tuple[str, str]] = []
+    ts_case_map: Dict[str, dict] = {}
     stem_owner: Dict[str, str] = {}
     stats = {
         "ready": 0,
         "to_tr": 0,
+        "to_ts_radcure": 0,
+        "to_ts_hecktor": 0,
         "to_ts": 0,
-        "excluded_hecktor_test": 0,
         "stem_collision_skipped": 0,
         "stem_blocked_by_ts": 0,
+        "hecktor_test_missing_output": 0,
     }
 
-    for case_id in _list_ready_case_ids(cases_root):
+    ready = set(_list_ready_case_ids(cases_root))
+
+    for case_id in sorted(ready):
         stats["ready"] += 1
         stem = _case_id_to_stem(case_id)
 
         if case_id in excluded:
-            stats["excluded_hecktor_test"] += 1
+            if not include_hecktor_test_in_ts:
+                continue
+            hstem = _hecktor_ts_stem(case_id)
+            if hstem in stem_owner:
+                stats["stem_collision_skipped"] += 1
+                print(
+                    f"  WARNING: stem {hstem} already used by {stem_owner[hstem]}; "
+                    f"skipping {case_id}"
+                )
+                continue
+            stem_owner[hstem] = case_id
+            ts_pairs.append((hstem, case_id))
+            ts_case_map[hstem] = {
+                "case_id": case_id,
+                "cohort": "hecktor",
+                "role": "held_out_test",
+            }
+            stats["to_ts_hecktor"] += 1
+            stats["to_ts"] += 1
             continue
 
         if case_id.startswith("RADCURE-") and stem in ts_stems:
             ts_pairs.append((stem, case_id))
+            ts_case_map[stem] = {
+                "case_id": case_id,
+                "cohort": "radcure",
+                "role": "manifest_ts",
+            }
+            stats["to_ts_radcure"] += 1
             stats["to_ts"] += 1
             continue
 
@@ -148,7 +195,7 @@ def _max_train_membership(
         tr_pairs.append((stem, case_id))
         stats["to_tr"] += 1
 
-    # Ensure manifesto Ts stems appear even if listing order differed
+    # Ensure manifesto RADCURE Ts stems appear even if listing order differed
     have_ts = {s for s, _ in ts_pairs}
     for img in ts_image_names:
         stem = stem_from_image_filename(img)
@@ -156,7 +203,19 @@ def _max_train_membership(
             continue
         case_id = _radcure_case_id_from_stem(stem)
         ts_pairs.append((stem, case_id))
+        ts_case_map[stem] = {
+            "case_id": case_id,
+            "cohort": "radcure",
+            "role": "manifest_ts",
+        }
+        stats["to_ts_radcure"] += 1
         stats["to_ts"] += 1
+
+    if include_hecktor_test_in_ts:
+        for case_id in sorted(excluded):
+            if case_id in ready:
+                continue
+            stats["hecktor_test_missing_output"] += 1
 
     return (
         {
@@ -165,6 +224,7 @@ def _max_train_membership(
             "Ts": sorted(ts_pairs, key=lambda x: x[0]),
         },
         stats,
+        ts_case_map,
     )
 
 
@@ -174,12 +234,30 @@ def _place_from_case_id(
     dst_images: str,
     dst_labels: str,
     mode: str,
+    target_stem: Optional[str] = None,
 ) -> None:
-    """Place image/label from unified (or legacy) case folder output/."""
-    if case_id.startswith("RADCURE-"):
-        _place_radcure_relabel(cases_root, case_id, dst_images, dst_labels, mode)
+    """Place image/label from unified case folder output/, optionally renaming stem."""
+    out_i = cases_root / case_id / "output" / "image"
+    out_l = cases_root / case_id / "output" / "labels"
+    if not out_i.is_dir() or not out_l.is_dir():
+        raise FileNotFoundError(f"Missing output for {case_id}")
+    imgs = [f for f in os.listdir(out_i) if f.endswith(".nii.gz")]
+    lbls = [f for f in os.listdir(out_l) if f.endswith(".nii.gz")]
+    if not imgs or not lbls:
+        raise FileNotFoundError(f"No nifti in {out_i} / {out_l}")
+    src_img = out_i / imgs[0]
+    src_lbl = out_l / lbls[0]
+    if target_stem:
+        img_name = f"{target_stem}_0000.nii.gz"
+        lbl_name = f"{target_stem}.nii.gz"
+    elif imgs[0].endswith("_0000.nii.gz"):
+        base = imgs[0].replace("_0000.nii.gz", "")
+        img_name = imgs[0]
+        lbl_name = f"{base}.nii.gz"
     else:
-        _place_hecktor_relabel(cases_root, case_id, dst_images, dst_labels, mode)
+        img_name = imgs[0]
+        lbl_name = lbls[0]
+    _place_pair(src_img, src_lbl, dst_images, dst_labels, img_name, lbl_name, mode)
 
 
 def _hecktor_stem(case_id: str) -> str:
@@ -631,6 +709,8 @@ def build_dataset650(
     radcure_dataset366: Optional[Path] = None,
     cases_root: Optional[Path] = None,
     train_all_except_ts: bool = True,
+    include_hecktor_test_in_ts: bool = True,
+    ts_only: bool = False,
 ) -> Path:
     reference_dataset650, manifest, manifest_used = _resolve_manifest(
         reference_dataset650, split_manifest=split_manifest
@@ -703,11 +783,21 @@ def build_dataset650(
     print(
         "  Train mode:   "
         + (
-            "ALL except fixed Ts (+ exclude HECKTOR Dataset152)"
+            "ALL except fixed Ts"
             if train_all_except_ts
             else "manifest Tr/Va/Ts"
         )
     )
+    print(
+        "  Test set:     "
+        + (
+            "RADCURE Ts + HECKTOR held-out (unified imagesTs)"
+            if include_hecktor_test_in_ts
+            else "RADCURE Ts only (HECKTOR → Dataset152)"
+        )
+    )
+    if ts_only:
+        print("  Mode:         refresh imagesTs/labelsTs only (keep Tr)")
     if test4_work_root:
         print(f"Test4 fallback root: {test4_work_root}")
         print(f"  Test4 Dataset650: {test4_dataset650 or '(not found)'}")
@@ -722,19 +812,21 @@ def build_dataset650(
 
     max_train_pairs: Optional[Dict[str, List[Tuple[str, str]]]] = None
     max_train_stats: Optional[Dict[str, int]] = None
+    ts_case_map: Dict[str, dict] = {}
     if train_all_except_ts:
         assert unified_cases is not None
-        max_train_pairs, max_train_stats = _max_train_membership(
+        max_train_pairs, max_train_stats, ts_case_map = _max_train_membership(
             cases_root=unified_cases,
             manifest=manifest,
             ts_image_names=split_images.get("Ts", []),
+            include_hecktor_test_in_ts=include_hecktor_test_in_ts,
         )
-        split_source = "train_all_except_fixed_ts"
+        split_source = "train_all_except_fixed_ts_unified_test"
         print("Max-train membership:", max_train_stats)
         print(
             "  Planned:",
             {k: len(v) for k, v in max_train_pairs.items()},
-            "| fixed Ts from manifesto:",
+            "| fixed RADCURE Ts from manifesto:",
             len(split_images.get("Ts", [])),
         )
 
@@ -757,8 +849,19 @@ def build_dataset650(
         )
 
     if dataset_folder.is_dir() and not dry_run:
-        print(f"Removing existing {dataset_folder}")
-        shutil.rmtree(dataset_folder)
+        if ts_only:
+            if not (dataset_folder / "imagesTr").is_dir():
+                raise FileNotFoundError(
+                    f"--ts-only requires existing Dataset650 with imagesTr: {dataset_folder}"
+                )
+            for split_name in ("imagesTs", "labelsTs"):
+                p = dataset_folder / split_name
+                if p.is_dir():
+                    shutil.rmtree(p)
+            print(f"Cleared imagesTs/labelsTs under {dataset_folder} (kept Tr)")
+        else:
+            print(f"Removing existing {dataset_folder}")
+            shutil.rmtree(dataset_folder)
 
     counts = {"Tr": 0, "Va": 0, "Ts": 0}
     source_counts: Dict[str, int] = {}
@@ -771,7 +874,8 @@ def build_dataset650(
 
     if train_all_except_ts:
         assert max_train_pairs is not None and unified_cases is not None
-        for split in ("Tr", "Va", "Ts"):
+        splits_to_build = ("Ts",) if ts_only else ("Tr", "Va", "Ts")
+        for split in splits_to_build:
             pairs = max_train_pairs.get(split, [])
             print(f"\n{split}: {len(pairs)} cases")
             if dry_run:
@@ -787,7 +891,12 @@ def build_dataset650(
                     continue
                 try:
                     _place_from_case_id(
-                        unified_cases, case_id, str(dst_img), str(dst_lbl), link_mode
+                        unified_cases,
+                        case_id,
+                        str(dst_img),
+                        str(dst_lbl),
+                        link_mode,
+                        target_stem=stem,
                     )
                     source_counts["test5_radheck"] = (
                         source_counts.get("test5_radheck", 0) + 1
@@ -795,6 +904,13 @@ def build_dataset650(
                     counts[split] += 1
                 except (FileNotFoundError, OSError) as exc:
                     missing.append(f"{split}/{stem}/{case_id}: {exc}")
+        if ts_only and not dry_run and (dataset_folder / "imagesTr").is_dir():
+            counts["Tr"] = len(list((dataset_folder / "imagesTr").glob("*.nii.gz")))
+            counts["Va"] = (
+                len(list((dataset_folder / "imagesVa").glob("*.nii.gz")))
+                if (dataset_folder / "imagesVa").is_dir()
+                else 0
+            )
     else:
         for split in ("Tr", "Va", "Ts"):
             ref_images = split_images.get(split, [])
@@ -916,7 +1032,10 @@ def build_dataset650(
         "split_source": split_source,
         "split_manifest_used": manifest_used,
         "train_all_except_ts": train_all_except_ts,
+        "include_hecktor_test_in_ts": include_hecktor_test_in_ts,
+        "ts_only_refresh": ts_only,
         "max_train_stats": max_train_stats,
+        "ts_case_map": ts_case_map,
         "label_source": (
             "Prefer Test5 improved transform; optional Test4 if present; "
             "else reference Dataset650"
@@ -932,16 +1051,27 @@ def build_dataset650(
         "background_mode": "improved_where_test5_relabel_exists",
         "anatomy_qc": False,
         "fixed_ts_note": (
-            "Ts kept identical to Test1 manifesto for RADCURE comparison; "
-            "Tr expanded to all other ready cases except HECKTOR Dataset152."
-            if train_all_except_ts
-            else None
+            "Ts = Test1 RADCURE 74 + HECKTOR held-out (case_hek_* stems); "
+            "Tr = all other ready RADHECK cases. Single evaluate on imagesTs."
+            if train_all_except_ts and include_hecktor_test_in_ts
+            else (
+                "Ts kept identical to Test1 manifesto for RADCURE comparison; "
+                "Tr expanded; HECKTOR test left for Dataset152."
+                if train_all_except_ts
+                else None
+            )
         ),
     }
     man_path = dataset_folder / "split_manifest.json"
     with open(man_path, "w") as f:
         json.dump(out_manifest, f, indent=2)
     print(f"\nWrote {man_path}")
+    if ts_case_map and not dry_run:
+        map_path = dataset_folder / "ts_case_map.json"
+        with open(map_path, "w") as f:
+            json.dump(ts_case_map, f, indent=2)
+            f.write("\n")
+        print(f"Wrote {map_path} ({len(ts_case_map)} test cases)")
     print(f"Counts: {counts}")
     print(f"Done: {dataset_folder}")
     return dataset_folder
@@ -1020,7 +1150,7 @@ def main() -> None:
         default=True,
         help=(
             "Default: keep manifesto Ts (74); put all other ready cases into Tr; "
-            "exclude HECKTOR Dataset152; Va empty"
+            "Va empty"
         ),
     )
     parser.add_argument(
@@ -1028,6 +1158,24 @@ def main() -> None:
         dest="train_all_except_ts",
         action="store_false",
         help="Use original Test1 Tr/Va/Ts membership (Tr≈361) instead of max-train",
+    )
+    parser.add_argument(
+        "--include-hecktor-test-in-ts",
+        dest="include_hecktor_test_in_ts",
+        action="store_true",
+        default=True,
+        help="Put HECKTOR held-out test into Dataset650 imagesTs (default)",
+    )
+    parser.add_argument(
+        "--hecktor-test-to-152",
+        dest="include_hecktor_test_in_ts",
+        action="store_false",
+        help="Legacy: leave HECKTOR test out of 650 (use Dataset152 instead)",
+    )
+    parser.add_argument(
+        "--ts-only",
+        action="store_true",
+        help="Only refresh imagesTs/labelsTs (keep existing imagesTr)",
     )
     args = parser.parse_args()
 
@@ -1085,6 +1233,12 @@ def main() -> None:
         f"Train mode:    "
         f"{'all except fixed Ts' if args.train_all_except_ts else 'manifest splits'}"
     )
+    print(
+        f"Test set:      "
+        f"{'unified RADCURE+HECKTOR Ts' if args.include_hecktor_test_in_ts else 'RADCURE Ts only'}"
+    )
+    if args.ts_only:
+        print("Refresh:       Ts only")
     print("=" * 70)
 
     build_dataset650(
@@ -1102,6 +1256,8 @@ def main() -> None:
         radcure_dataset366=rad366,
         cases_root=cases,
         train_all_except_ts=bool(args.train_all_except_ts),
+        include_hecktor_test_in_ts=bool(args.include_hecktor_test_in_ts),
+        ts_only=bool(args.ts_only),
     )
 
 
