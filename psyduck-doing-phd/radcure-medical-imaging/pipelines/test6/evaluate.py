@@ -91,7 +91,13 @@ def main() -> None:
 
     dataset = Path(os.environ["DATASET_FOLDER"])
     images_ts = dataset / "imagesTs"
-    pred_dir = dataset / "labelsTs_predicted"
+    # Keep predictions under Test6 work (never write into Test5 Dataset650)
+    pred_dir = Path(
+        os.getenv(
+            "TEST6_PRED_DIR",
+            str(work / "predictions" / "labelsTs_predicted"),
+        )
+    ).expanduser()
     pred_dir.mkdir(parents=True, exist_ok=True)
 
     if not args.skip_predict:
@@ -118,28 +124,20 @@ def main() -> None:
     else:
         print(f"Skipping predict — using {pred_dir}")
 
-    # Reuse project Dice evaluation (cohort-aware when ts_case_map exists)
+    # Keep logs + dice viz under Test6 (not inside Test5 Dataset650)
     os.environ["LOG_DIR"] = str(
         Path(os.environ["NNUNET_RETRAIN_PATH"]) / "logs"
     )
     Path(os.environ["LOG_DIR"]).mkdir(parents=True, exist_ok=True)
+    os.environ["NNUNET_EVAL_OUTPUT_DIR"] = str(work / "predictions")
 
     from nnunet_training.config import TrainingConfig
     from nnunet_training.predict_and_evaluate import (
         evaluate_predictions,
         evaluation_visualization,
-        get_predictions_output_dir,
     )
 
-    # Point config at already-written predictions
     config = TrainingConfig()
-    # Ensure predict dir matches what we used
-    pred_path = get_predictions_output_dir(config)
-    if Path(pred_path).resolve() != pred_dir.resolve():
-        # Copy/symlink if config uses a different path
-        if not Path(pred_path).exists():
-            os.symlink(pred_dir.resolve(), pred_path)
-
     print("\nEvaluating Dice (overall + cohort if ts_case_map.json present)…")
     evaluate_predictions(config, str(pred_dir))
 
@@ -147,7 +145,8 @@ def main() -> None:
         print("\nEvaluation visualization…")
         evaluation_visualization(config)
 
-    print("\nDone. Check LOG_DIR CSV and labelsTs_dice_and_viz/.")
+    print(f"\nDone. Logs: {os.environ['LOG_DIR']}")
+    print(f"Predictions / viz: {work / 'predictions'}")
 
 
 if __name__ == "__main__":

@@ -39,8 +39,9 @@ df -h /media/HDD_8TB   # confirm free space before plan/train
 In `experiments/configs/local.yaml`:
 
 - `RETRAIN_RADHECK_TEST6` → `${TEST6_WORK_ROOT}/nnunet_retrain`
-- `RADHECK_DATASET_TEST6` → `${TEST6_WORK_ROOT}/Dataset650_TotalSegmentator` (symlink)
+- `RADHECK_DATASET_TEST6` → `${TEST6_WORK_ROOT}/Dataset650_TotalSegmentator` (**clean** dir: linked `images*`/`labels*` only)
 - `TEST6_WORK_ROOT` / `TEST6_DATASET650` / `TEST6_STU_VARIANT`
+- Organ dict from Test5 `RADHECK_CURRENT` / `RADHECK_*` (e.g. `RADHECK_1047`)
 
 ---
 
@@ -59,12 +60,24 @@ source ${TEST6_WORK_ROOT}/TEST6_ENV.sh
 
 ## Step 2 — Link Test5 Dataset650 (no reprocess)
 
-Same Tr / Ts as Test5 (max-train + unified HECKTOR test in `imagesTs`).
+Same Tr / Ts as Test5, but **not** a whole-folder symlink into Test5 (that would
+expose Test5 `labelsTs_predicted` / dice viz and write Test6 outputs back).
+
+Creates a clean `${TEST6_WORK_ROOT}/Dataset650_TotalSegmentator` with:
+- symlinks: `imagesTr`, `labelsTr`, `imagesTs`, `labelsTs` (+ Va if present)
+- copies: `dataset.json`, `case_map.json`, `ts_case_map.json`
+- organ dict copied from Test5 `RADHECK_*/organ_dictionary_test5.json`
 
 ```bash
+export TEST5_WORK_ROOT=/media/HDD_8TB/xisca/work/retrain_test5
+rm -f ${TEST6_WORK_ROOT}/organ_dictionary_test5.json
+# if an old whole-folder symlink exists:
+rm -rf ${TEST6_WORK_ROOT}/Dataset650_TotalSegmentator
+
 python -m pipelines.test6.link_test5_dataset
 
 ls -la ${TEST6_WORK_ROOT}/Dataset650_TotalSegmentator
+# should be a directory, not a symlink to retrain_test5
 echo "Tr=$(ls ${TEST6_WORK_ROOT}/Dataset650_TotalSegmentator/imagesTr/*_0000.nii.gz | wc -l)"
 echo "Ts=$(ls ${TEST6_WORK_ROOT}/Dataset650_TotalSegmentator/imagesTs/*_0000.nii.gz | wc -l)"
 ```
