@@ -48,6 +48,71 @@ def _symlink_or_replace(src: Path, dst: Path) -> None:
     print(f"  {dst} → {src.resolve()}")
 
 
+def _ensure_organ_dictionary(work: Path, src650: Path, explicit: str) -> Path:
+    """
+    Place organ_dictionary_test5.json under Test6 work root.
+
+    Prefer an existing Test5 / repo file; otherwise generate the same H&N
+    canonical map Test5 uses (GTVp=91, GTVn=92).
+    """
+    organ_dst = work / "organ_dictionary_test5.json"
+    candidates: list[Path] = []
+    if explicit.strip():
+        candidates.append(Path(explicit).expanduser())
+    candidates.extend(
+        [
+            src650.parent / "organ_dictionary_test5.json",
+            Path(os.getenv("TEST5_WORK_ROOT", src650.parent)).expanduser()
+            / "organ_dictionary_test5.json",
+            src650 / "organ_dictionary_test5.json",
+            _CANONICAL_ORGAN,
+        ]
+    )
+
+    organ_src = None
+    for cand in candidates:
+        try:
+            c = cand.resolve()
+        except OSError:
+            continue
+        if c.is_file():
+            organ_src = c
+            break
+
+    if organ_dst.exists() or organ_dst.is_symlink():
+        organ_dst.unlink()
+
+    if organ_src is not None:
+        if organ_src.resolve() == _CANONICAL_ORGAN.resolve():
+            shutil.copy2(organ_src, organ_dst)
+            print(f"  {organ_dst} ← copy {_CANONICAL_ORGAN.name}")
+        else:
+            os.symlink(organ_src.resolve(), organ_dst)
+            print(f"  {organ_dst} → {organ_src.resolve()}")
+    else:
+        # Server checkout may lack resources/*.json — build like Test5 Phase 2
+        if str(_REPO_ROOT) not in sys.path:
+            sys.path.insert(0, str(_REPO_ROOT))
+        from image_processor.utils.organ_dictionary import OrganDictionary
+
+        OrganDictionary.from_hn_canonical(
+            str(organ_dst), separate_gtvp_gtvn=True, save=True
+        )
+        print(
+            f"  {organ_dst} ← generated H&N canonical "
+            f"(repo template missing: {_CANONICAL_ORGAN})"
+        )
+
+    with open(organ_dst) as f:
+        labels = json.load(f)
+    for need in ("GTVp", "GTVn"):
+        if need not in labels:
+            raise RuntimeError(f"{organ_dst} missing {need}")
+    print(f"  labels: GTVp={labels['GTVp']} GTVn={labels['GTVn']} (n={len(labels)})")
+    os.environ["ORGAN_DICTIONARY_PATH"] = str(organ_dst.resolve())
+    return organ_dst
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Test6: symlink Test5 Dataset650 into TEST6_WORK_ROOT"
@@ -87,42 +152,13 @@ def main() -> None:
     dst650 = work / "Dataset650_TotalSegmentator"
     _symlink_or_replace(src650, dst650)
 
-    # Organ dictionary (Test5 copy, else repo canonical with GTVp/GTVn)
-    organ_src = None
-    if args.organ_dictionary:
-        organ_src = Path(args.organ_dictionary).expanduser()
-    else:
-        for cand in (
-            src650.parent / "organ_dictionary_test5.json",
-            Path(os.getenv("TEST5_WORK_ROOT", src650.parent)).expanduser()
-            / "organ_dictionary_test5.json",
-            src650 / "organ_dictionary_test5.json",
-            _CANONICAL_ORGAN,
-        ):
-            try:
-                c = cand.resolve()
-            except OSError:
-                continue
-            if c.is_file():
-                organ_src = c
-                break
-    organ_dst = work / "organ_dictionary_test5.json"
-    if organ_src and organ_src.is_file():
-        if organ_dst.exists() or organ_dst.is_symlink():
-            organ_dst.unlink()
-        os.symlink(organ_src.resolve(), organ_dst)
-        print(f"  {organ_dst} → {organ_src.resolve()}")
-        os.environ["ORGAN_DICTIONARY_PATH"] = str(organ_dst)
-    else:
-        raise FileNotFoundError(
-            "No organ dictionary found. Tried Test5 work root and "
-            f"{_CANONICAL_ORGAN}. Set --organ-dictionary or ORGAN_DICTIONARY_PATH."
-        )
+    organ_dst = _ensure_organ_dictionary(work, src650, args.organ_dictionary)
 
     # Status pointer
     status = {
         "dataset650": str(dst650.resolve()),
         "dataset650_source": str(src650),
+        "organ_dictionary": str(organ_dst.resolve()),
         "n_imagesTr": n_tr,
         "n_imagesTs": n_ts,
         "reuse_test5": True,
