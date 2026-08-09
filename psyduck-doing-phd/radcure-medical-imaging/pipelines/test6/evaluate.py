@@ -33,7 +33,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from pipelines.test6.paths import (
     TRAINER_FT,
-    stunet_clone,
+    nnunet_cmd,
     variant as default_variant,
     work_root,
 )
@@ -78,8 +78,6 @@ def main() -> None:
 
     work = Path(args.work_root).expanduser().resolve()
     _ensure_env(work)
-    stunet = stunet_clone(work)
-    nnunet_v2 = stunet / "nnUNet-2.2"
     trainer = TRAINER_FT[args.variant]
 
     dataset = Path(os.environ["DATASET_FOLDER"])
@@ -88,9 +86,8 @@ def main() -> None:
     pred_dir.mkdir(parents=True, exist_ok=True)
 
     if not args.skip_predict:
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(nnunet_v2) + os.pathsep + env.get("PYTHONPATH", "")
-        cmd = [
+        print(f"Using Python: {sys.executable}")
+        cmd, env = nnunet_cmd(
             "nnUNetv2_predict",
             "-i",
             str(images_ts),
@@ -105,7 +102,8 @@ def main() -> None:
             "-tr",
             trainer,
             "--disable_tta",
-        ]
+            work=work,
+        )
         print("+", " ".join(cmd))
         subprocess.check_call(cmd, env=env)
     else:

@@ -136,3 +136,21 @@ Dice CSV under `${NNUNET_RETRAIN_PATH}/logs/`; cohort columns when
 - Disk: plan/preprocess for ~full Tr is large — free space on `/media/HDD_8TB` first.
 - Explore notebook stays research-only; this runbook is the **implementation** path.
 - Do **not** re-run `transform_cases` / TotalSegmentator for Test6.
+
+### Troubleshooting: `numpy.dtype size changed` / blosc2
+
+Plan/predict must use the **same** Python as `python -m pipelines.test6…`,
+not `~/.local/bin/nnUNetv2_*` (often a different Python 3.9 user install).
+
+```bash
+# Prefer project venv
+source /path/to/radcure-medical-imaging/.venv/bin/activate   # if you use one
+which python
+python -c "import sys; print(sys.executable)"
+
+# If blosc2/numpy still clash in *this* env:
+pip install --force-reinstall --no-cache-dir numpy blosc2
+
+# Re-run (train_finetune now invokes nnUNet via this Python, not PATH)
+python -m pipelines.test6.train_finetune --step plan
+```

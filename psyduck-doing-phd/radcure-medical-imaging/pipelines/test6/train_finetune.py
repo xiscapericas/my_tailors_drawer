@@ -36,6 +36,10 @@ except ImportError:
 from pipelines.test6.paths import (
     TRAINER_FT,
     WEIGHT_FILENAMES,
+    check_numpy_blosc2,
+    nnunet_cmd,
+    nnunet_v2_root,
+    python_env_with_stunet,
     stunet_clone,
     variant as default_variant,
     work_root,
@@ -167,16 +171,19 @@ def step_plan(work: Path, dataset_id: str = "650") -> None:
     paths = _ensure_env(work)
     dataset = _dataset_folder(work)
     _link_raw(work, dataset, paths["raw"])
-    cmd = [
+    check_numpy_blosc2()
+    print(f"Using Python: {sys.executable}")
+    cmd, env = nnunet_cmd(
         "nnUNetv2_plan_and_preprocess",
         "-d",
         str(dataset_id),
         "-c",
         "3d_fullres",
         "--verify_dataset_integrity",
-    ]
+        work=work,
+    )
     print("+", " ".join(cmd))
-    subprocess.check_call(cmd)
+    subprocess.check_call(cmd, env=env)
     _copy_splits_final(dataset, paths["preprocessed"], dataset.name)
     print("Plan/preprocess complete.")
 
@@ -194,8 +201,7 @@ def step_train(
     trainer = TRAINER_FT[variant]
     script = _finetune_script(stunet)
 
-    # Ensure STU-Net nnUNetv2 is importable first
-    nnunet_v2 = stunet / "nnUNet-2.2"
+    nnunet_v2 = nnunet_v2_root(work)
     if str(nnunet_v2) not in sys.path:
         sys.path.insert(0, str(nnunet_v2))
 
@@ -216,6 +222,7 @@ def step_train(
     ]
     print("=" * 70)
     print("Test6 — STU-Net fine-tune")
+    print(f"  python:   {sys.executable}")
     print(f"  variant:  {variant} → {trainer}")
     print(f"  weights:  {weights}")
     print(f"  fold:     {fold}")
@@ -223,13 +230,7 @@ def step_train(
     print(f"  results:  {paths['results']}")
     print("=" * 70)
     print("+", " ".join(cmd))
-    # Run with cwd so relative imports in run_finetuning_stunet work
-    env = os.environ.copy()
-    env["PYTHONPATH"] = (
-        str(nnunet_v2)
-        + os.pathsep
-        + env.get("PYTHONPATH", "")
-    )
+    env = python_env_with_stunet(work)
     subprocess.check_call(cmd, cwd=str(script.parent), env=env)
     print("\nTraining finished.")
     print("Next: python -m pipelines.test6.evaluate")
