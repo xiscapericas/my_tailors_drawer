@@ -33,8 +33,6 @@ try:
 except ImportError:
     pass
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-
 from pipelines.radheck.build_nnunet_dataset import write_dataset_json
 from pipelines.test6.paths import (
     TRAINER_FT,
@@ -42,7 +40,9 @@ from pipelines.test6.paths import (
     check_numpy_blosc2,
     nnunet_cmd,
     nnunet_v2_root,
+    pin_test6_env,
     python_env_with_stunet,
+    resolve_test5_organ_dictionary,
     stunet_clone,
     variant as default_variant,
     work_root,
@@ -50,26 +50,8 @@ from pipelines.test6.paths import (
 
 
 def _ensure_env(work: Path) -> dict:
-    """Configure nnUNet_* paths under TEST6 work root."""
-    retrain = Path(
-        os.getenv("NNUNET_RETRAIN_PATH", str(work / "nnunet_retrain"))
-    ).expanduser()
-    retrain.mkdir(parents=True, exist_ok=True)
-    raw = retrain  # same layout as Test5 train_nnunet config
-    preproc = retrain / "nnUNet_preprocessed"
-    results = retrain / "nnUNet_results"
-    preproc.mkdir(parents=True, exist_ok=True)
-    results.mkdir(parents=True, exist_ok=True)
-    os.environ["nnUNet_raw"] = str(raw)
-    os.environ["nnUNet_preprocessed"] = str(preproc)
-    os.environ["nnUNet_results"] = str(results)
-    os.environ.setdefault("nnUNet_compile", "false")
-    return {
-        "retrain": retrain,
-        "raw": raw,
-        "preprocessed": preproc,
-        "results": results,
-    }
+    """Configure nnUNet_* paths under TEST6 work root (ignore stale shell/.env)."""
+    return pin_test6_env(work)
 
 
 def _dataset_folder(work: Path) -> Path:
@@ -183,25 +165,6 @@ def _copy_splits_final(dataset: Path, preprocessed: Path, dataset_name: str) -> 
     )
 
 
-def _organ_dictionary_path(work: Path) -> Path:
-    env = os.getenv("ORGAN_DICTIONARY_PATH", "").strip()
-    if env:
-        p = Path(env).expanduser()
-        if p.is_file():
-            return p
-    for cand in (
-        work / "organ_dictionary_test5.json",
-        Path(os.getenv("TEST5_WORK_ROOT", "")) / "organ_dictionary_test5.json",
-        _REPO_ROOT / "image_processor" / "resources" / "organ_dictionary_hn_canonical.json",
-    ):
-        if cand and cand.is_file():
-            return cand
-    raise FileNotFoundError(
-        "No organ dictionary found. Set ORGAN_DICTIONARY_PATH or run "
-        "python -m pipelines.test6.link_test5_dataset"
-    )
-
-
 def _refresh_dataset_json(work: Path, dataset: Path) -> None:
     """
     Ensure dataset.json labels include GTVp/GTVn (91/92).
@@ -209,7 +172,7 @@ def _refresh_dataset_json(work: Path, dataset: Path) -> None:
     Test5 NIfTIs are fine; an outdated dataset.json listing only 0–90 makes
     nnUNet --verify_dataset_integrity fail on label 92 (GTVn).
     """
-    organ = _organ_dictionary_path(work)
+    organ = resolve_test5_organ_dictionary(work)
     with open(organ) as f:
         labels = json.load(f)
     for need in ("GTVp", "GTVn"):

@@ -7,8 +7,9 @@ inputs (images*/labels* + maps). Does **not** symlink the whole Test5
 folder (avoids pulling Test5 ``labelsTs_predicted`` / dice viz into Test6,
 and avoids writing Test6 outputs back into Test5).
 
-Organ dictionary is taken from Test5 ``RADHECK_*`` (e.g. RADHECK_1047) or
-``RADHECK_CURRENT``, not from a stale ``ORGAN_DICTIONARY_PATH``.
+Organ dictionary is copied from Test5
+``…/retrain_test5/organ_dictionary_test5.json`` (never the legacy
+``RadcureComplete/radcure_dictionary.json``).
 
 Example:
 
@@ -24,7 +25,6 @@ import argparse
 import json
 import os
 import shutil
-import sys
 from pathlib import Path
 
 try:
@@ -34,12 +34,11 @@ try:
 except ImportError:
     pass
 
-from pipelines.test5.paths import resolve_radheck
-from pipelines.test6.paths import test5_dataset650, work_root
-
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_CANONICAL_ORGAN = (
-    _REPO_ROOT / "image_processor" / "resources" / "organ_dictionary_hn_canonical.json"
+from pipelines.test6.paths import (
+    DEFAULT_TEST5_ORGAN_DICTIONARY,
+    resolve_test5_organ_dictionary,
+    test5_dataset650,
+    work_root,
 )
 
 # Only these Dataset650 entries are linked/copied into Test6.
@@ -57,13 +56,6 @@ _COPY_FILES = (
     "ts_case_map.json",
     "splits_final.json",
 )
-
-
-def _safe_resolve(path: Path) -> Path | None:
-    try:
-        return path.expanduser().resolve()
-    except (OSError, RuntimeError):
-        return None
 
 
 def _replace_path(path: Path) -> None:
@@ -143,37 +135,13 @@ def _link_clean_dataset650(src650: Path, dst650: Path) -> dict:
     return {"linked_dirs": linked, "copied_files": copied, "skipped_extras": extras}
 
 
-def _organ_candidates(test5_work: Path, src650: Path, explicit: str) -> list[Path]:
-    out: list[Path] = []
-    if explicit.strip():
-        out.append(Path(explicit).expanduser())
-
-    # Prefer RADHECK_* (RADHECK_CURRENT → RADHECK_1047, …)
-    try:
-        radheck = resolve_radheck(test5_work)
-        out.append(radheck / "organ_dictionary_test5.json")
-        print(f"  Test5 RADHECK: {radheck}")
-    except FileNotFoundError as e:
-        print(f"  WARNING: {e}")
-
-    out.extend(
-        [
-            test5_work / "organ_dictionary_test5.json",
-            src650.parent / "organ_dictionary_test5.json",
-            src650 / "organ_dictionary_test5.json",
-            _CANONICAL_ORGAN,
-        ]
-    )
-    # Also scan any RADHECK_* for a dict (newest first already via resolve; add rest)
-    for rad in sorted(test5_work.glob("RADHECK_*"), reverse=True):
-        if rad.is_dir() and rad.name != "RADHECK_CURRENT":
-            out.append(rad / "organ_dictionary_test5.json")
-    return out
-
-
 def _ensure_organ_dictionary(
     work: Path, test5_work: Path, src650: Path, explicit: str
 ) -> Path:
+    """Copy Test5 organ_dictionary_test5.json into Test6 work (never radcure_dictionary)."""
+    del src650
+    os.environ["TEST5_WORK_ROOT"] = str(test5_work)
+
     organ_dst = work / "organ_dictionary_test5.json"
     if organ_dst.is_symlink() or organ_dst.exists():
         try:
@@ -185,31 +153,27 @@ def _ensure_organ_dictionary(
                 f"  Run: rm -f {organ_dst}"
             ) from e
 
-    dst_abs = str(organ_dst)
-    organ_src = None
-    for cand in _organ_candidates(test5_work, src650, explicit):
-        cand_exp = cand.expanduser()
-        if str(cand_exp) == dst_abs:
-            continue
-        resolved = _safe_resolve(cand_exp)
-        if resolved is None or str(resolved) == dst_abs:
-            continue
-        if resolved.is_file():
-            organ_src = resolved
-            break
-
-    if organ_src is not None and organ_src.is_file():
-        shutil.copy2(organ_src, organ_dst)
-        print(f"  {organ_dst.name} ← copy {organ_src}")
+    # Prefer the Test5 work-root file (what Test5 actually trained with)
+    preferred = test5_work / "organ_dictionary_test5.json"
+    if explicit.strip():
+        organ_src = Path(explicit).expanduser().resolve()
+    elif preferred.is_file():
+        organ_src = preferred.resolve()
     else:
-        if str(_REPO_ROOT) not in sys.path:
-            sys.path.insert(0, str(_REPO_ROOT))
-        from image_processor.utils.organ_dictionary import OrganDictionary
-
-        OrganDictionary.from_hn_canonical(
-            str(organ_dst), separate_gtvp_gtvn=True, save=True
+        organ_src = resolve_test5_organ_dictionary(
+            test5_work, explicit=str(Path(DEFAULT_TEST5_ORGAN_DICTIONARY))
         )
-        print(f"  {organ_dst.name} ← generated H&N canonical (GTVp/GTVn)")
+
+    if not organ_src.is_file():
+        raise FileNotFoundError(
+            f"Test5 organ dictionary not found.\n"
+            f"Expected: {preferred}\n"
+            f"(or {DEFAULT_TEST5_ORGAN_DICTIONARY})\n"
+            "Do not use …/RadcureComplete/radcure_dictionary.json"
+        )
+
+    shutil.copy2(organ_src, organ_dst)
+    print(f"  {organ_dst.name} ← copy {organ_src}")
 
     with open(organ_dst) as f:
         labels = json.load(f)

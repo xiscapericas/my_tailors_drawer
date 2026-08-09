@@ -34,37 +34,14 @@ if str(_REPO_ROOT) not in sys.path:
 from pipelines.test6.paths import (
     TRAINER_FT,
     nnunet_cmd,
+    pin_test6_env,
     variant as default_variant,
     work_root,
 )
 
 
 def _ensure_env(work: Path) -> None:
-    retrain = Path(
-        os.getenv("NNUNET_RETRAIN_PATH", str(work / "nnunet_retrain"))
-    ).expanduser()
-    os.environ["nnUNet_raw"] = str(retrain)
-    os.environ["nnUNet_preprocessed"] = str(retrain / "nnUNet_preprocessed")
-    os.environ["nnUNet_results"] = str(retrain / "nnUNet_results")
-    os.environ.setdefault("nnUNet_compile", "false")
-    os.environ["NNUNET_RETRAIN_PATH"] = str(retrain)
-    dataset = (work / "Dataset650_TotalSegmentator").resolve()
-    if dataset.is_dir():
-        stale = os.getenv("DATASET_FOLDER", "").strip()
-        if stale and Path(stale).expanduser().resolve() != dataset:
-            print(
-                f"NOTE: ignoring stale DATASET_FOLDER={stale}\n"
-                f"      using Test6 dataset {dataset}"
-            )
-        os.environ["DATASET_FOLDER"] = str(dataset)
-    else:
-        os.environ["DATASET_FOLDER"] = str(
-            Path(os.getenv("DATASET_FOLDER", str(dataset))).expanduser()
-        )
-    os.environ["DATASET_ID"] = os.getenv("DATASET_ID", "650")
-    organ = work / "organ_dictionary_test5.json"
-    if organ.is_file():
-        os.environ["ORGAN_DICTIONARY_PATH"] = str(organ.resolve())
+    pin_test6_env(work)
 
 
 def main() -> None:

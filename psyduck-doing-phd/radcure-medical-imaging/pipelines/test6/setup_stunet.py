@@ -113,7 +113,10 @@ def _write_env_hint(work: Path, stunet: Path, weights: Path, variant: str) -> No
     hint = work / "TEST6_ENV.sh"
     nnunet_v2 = stunet / "nnUNet-2.2"
     text = f"""# Source before Test6 train/eval
+# Clears common leftovers from Test1–3 so they cannot override Test6 paths.
+unset DATASET_FOLDER NNUNET_RETRAIN_PATH ORGAN_DICTIONARY_PATH DATASET_ID
 export TEST6_WORK_ROOT={work}
+export TEST5_WORK_ROOT=${{TEST5_WORK_ROOT:-/media/HDD_8TB/xisca/work/retrain_test5}}
 export TEST6_STU_VARIANT={variant}
 export TEST6_STUNET_CLONE={stunet}
 export TEST6_PRETRAINED_WEIGHTS={weights}
@@ -122,10 +125,12 @@ export NNUNET_RETRAIN_PATH={work}/nnunet_retrain
 export DATASET_FOLDER={work}/Dataset650_TotalSegmentator
 export DATASET_ID=650
 export ORGAN_DICTIONARY_PATH={work}/organ_dictionary_test5.json
+# Never: …/RadcureComplete/radcure_dictionary.json (old, no GTVn)
 export nnUNet_compile=false
 """
     hint.write_text(text)
     print(f"Wrote {hint}")
+    print("Re-source after setup:  source ${TEST6_WORK_ROOT}/TEST6_ENV.sh")
 
 
 def main() -> None:
