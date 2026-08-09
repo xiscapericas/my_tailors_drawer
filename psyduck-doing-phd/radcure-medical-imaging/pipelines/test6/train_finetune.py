@@ -310,6 +310,11 @@ def step_train(
 
 
 def main() -> None:
+    # Quick fingerprint so a stale server checkout is obvious
+    print(
+        f"test6.train_finetune @ {Path(__file__).resolve()} "
+        f"(dataset prefers TEST6 work root over stale DATASET_FOLDER)"
+    )
     parser = argparse.ArgumentParser(description="Test6: STU-Net fine-tune")
     parser.add_argument("--work-root", default=str(work_root()))
     parser.add_argument(

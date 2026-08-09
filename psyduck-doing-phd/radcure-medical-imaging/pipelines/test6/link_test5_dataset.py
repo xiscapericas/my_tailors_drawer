@@ -31,6 +31,11 @@ except ImportError:
 
 from pipelines.test6.paths import test5_dataset650, work_root
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_CANONICAL_ORGAN = (
+    _REPO_ROOT / "image_processor" / "resources" / "organ_dictionary_hn_canonical.json"
+)
+
 
 def _symlink_or_replace(src: Path, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -82,18 +87,22 @@ def main() -> None:
     dst650 = work / "Dataset650_TotalSegmentator"
     _symlink_or_replace(src650, dst650)
 
-    # Organ dictionary
+    # Organ dictionary (Test5 copy, else repo canonical with GTVp/GTVn)
     organ_src = None
     if args.organ_dictionary:
         organ_src = Path(args.organ_dictionary).expanduser()
     else:
         for cand in (
             src650.parent / "organ_dictionary_test5.json",
-            src650 / ".." / "organ_dictionary_test5.json",
-            Path(os.getenv("TEST5_WORK_ROOT", src650.parent))
+            Path(os.getenv("TEST5_WORK_ROOT", src650.parent)).expanduser()
             / "organ_dictionary_test5.json",
+            src650 / "organ_dictionary_test5.json",
+            _CANONICAL_ORGAN,
         ):
-            c = cand.resolve()
+            try:
+                c = cand.resolve()
+            except OSError:
+                continue
             if c.is_file():
                 organ_src = c
                 break
@@ -103,8 +112,12 @@ def main() -> None:
             organ_dst.unlink()
         os.symlink(organ_src.resolve(), organ_dst)
         print(f"  {organ_dst} → {organ_src.resolve()}")
+        os.environ["ORGAN_DICTIONARY_PATH"] = str(organ_dst)
     else:
-        print("WARNING: organ_dictionary_test5.json not found — set ORGAN_DICTIONARY_PATH")
+        raise FileNotFoundError(
+            "No organ dictionary found. Tried Test5 work root and "
+            f"{_CANONICAL_ORGAN}. Set --organ-dictionary or ORGAN_DICTIONARY_PATH."
+        )
 
     # Status pointer
     status = {
