@@ -137,6 +137,18 @@ Dice CSV under `${NNUNET_RETRAIN_PATH}/logs/`; cohort columns when
 - Explore notebook stays research-only; this runbook is the **implementation** path.
 - Do **not** re-run `transform_cases` / TotalSegmentator for Test6.
 
+### Troubleshooting: plan looks under `nnunet_radheck_test_1`
+
+A leftover `DATASET_FOLDER` from Test1 in the shell/`.env` used to win.
+Test6 now prefers `${TEST6_WORK_ROOT}/Dataset650_TotalSegmentator`. Still safest:
+
+```bash
+unset DATASET_FOLDER
+source ${TEST6_WORK_ROOT}/TEST6_ENV.sh
+python -m pipelines.test6.link_test5_dataset   # if Dataset650 symlink missing
+python -m pipelines.test6.train_finetune --step plan
+```
+
 ### Troubleshooting: unexpected labels (e.g. Found `92`)
 
 You do **not** need to re-run TotalSegmentator. Masks already contain

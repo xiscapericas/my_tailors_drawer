@@ -73,15 +73,38 @@ def _ensure_env(work: Path) -> dict:
 
 
 def _dataset_folder(work: Path) -> Path:
-    folder = Path(
-        os.getenv("DATASET_FOLDER", str(work / "Dataset650_TotalSegmentator"))
-    ).expanduser()
-    if not folder.is_dir():
-        raise FileNotFoundError(
-            f"DATASET_FOLDER missing: {folder}\n"
-            "Run: python -m pipelines.test6.link_test5_dataset"
-        )
-    return folder
+    """
+    Prefer ``${TEST6_WORK_ROOT}/Dataset650_TotalSegmentator``.
+
+    A leftover ``DATASET_FOLDER`` from Test1/2/… in the shell or ``.env`` must
+    not win — that caused plan to look under ``nnunet_radheck_test_1``.
+    """
+    default = (work / "Dataset650_TotalSegmentator").expanduser().resolve()
+    if default.is_dir():
+        stale = os.getenv("DATASET_FOLDER", "").strip()
+        if stale and Path(stale).expanduser().resolve() != default:
+            print(
+                f"NOTE: ignoring stale DATASET_FOLDER={stale}\n"
+                f"      using Test6 dataset {default}"
+            )
+        os.environ["DATASET_FOLDER"] = str(default)
+        return default
+
+    env = os.getenv("DATASET_FOLDER", "").strip()
+    if env:
+        folder = Path(env).expanduser().resolve()
+        if folder.is_dir():
+            print(
+                f"WARNING: {default} missing; falling back to DATASET_FOLDER={folder}"
+            )
+            os.environ["DATASET_FOLDER"] = str(folder)
+            return folder
+
+    raise FileNotFoundError(
+        f"Test6 Dataset650 missing: {default}\n"
+        "Run: python -m pipelines.test6.link_test5_dataset\n"
+        f"(stale DATASET_FOLDER was {os.getenv('DATASET_FOLDER', '')!r})"
+    )
 
 
 def _link_raw(work: Path, dataset: Path, raw: Path) -> Path:
