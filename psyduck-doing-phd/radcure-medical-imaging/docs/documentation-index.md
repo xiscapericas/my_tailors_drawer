@@ -87,7 +87,9 @@ Single map of **all** docs. Each topic has **one canonical file** — others lin
 | [research_notebooks/README.md](../research_notebooks/README.md) | Notebook index |
 | [Retrain-Radheck-Test5.md](../pipelines/radheck/Retrain-Radheck-Test5.md) | **Test5** — improved preprocess (bg, no QC) → unified RADHECK_{N} → 700 epochs |
 | [test5_radheck_improved_preprocess.yaml](../experiments/configs/test5_radheck_improved_preprocess.yaml) | Test5 experiment config |
-| [test6_stunet/](../research_notebooks/test6_stunet/) | **Test6 research (explored)** — STU-Net-S infer done; synonym map + tumor FT after Test5 |
+| [Retrain-Radheck-Test6.md](../pipelines/radheck/Retrain-Radheck-Test6.md) | **Test6** — STU-Net fine-tune on Test5 Dataset650 (GTVp/GTVn) |
+| [test6_radheck_stunet_finetune.yaml](../experiments/configs/test6_radheck_stunet_finetune.yaml) | Test6 experiment config |
+| [test6_stunet/](../research_notebooks/test6_stunet/) | Test6 research notebook (explore done; FT in pipelines/) |
 | [FINDINGS.md](../research_notebooks/preprocessing_pipeline_review/FINDINGS.md) | **Handoff** — Steps A–E; canonical organ dict; next = production wiring / Dice |
 | [organ_dictionary_hn_canonical.json](../image_processor/resources/organ_dictionary_hn_canonical.json) | Fixed H&N labels: TS organs + GTVp/GTVn (case-independent) |
 | [Surface_Dice_Analysis_Report.md](../research_notebooks/Surface_Dice_Analysis_Report.md) | Metric exploration notes |

@@ -237,37 +237,46 @@ experiments:
 
   test6:
     id: test6
-    name: STU-Net inference explore (research)
-    status: explored
-    config_file: configs/test6_stunet_inference_explore.yaml
+    name: RADHECK — STU-Net fine-tune (GTVp/GTVn) vs Test5
+    status: planned
+    config_file: configs/test6_radheck_stunet_finetune.yaml
     changed_from: test5
     hypothesis: >
-      STU-Net pretrained on TotalSegmentator may provide stronger organ segmentation
-      priors; explore inference on RADCURE/HECKTOR samples before any fine-tune.
-      Pretrained model has no GTVp/GTVn — tumor Dice deferred.
+      Fine-tuning TotalSegmentator-pretrained STU-Net on the same Test5 Dataset650
+      (separate GTVp/GTVn, unified Tr/Ts) improves GTVp/GTVn Dice vs Test5 nnUNet
+      by transferring large-scale anatomical priors. No TotalSegmentator reprocess.
     training:
       cohorts: [radcure, hecktor]
+      dataset_id: 650
+      tumor_label_mode: separate
       model: STU-Net-S
-      pretrained_on: TotalSegmentator
-      research_only: true
+      trainer: STUNetTrainer_small_ft
+      epochs: 1000
+      configuration: 3d_fullres
+      reuse_test5_dataset650: true
+      setup_script: pipelines/test6/setup_stunet.py
+      train_script: pipelines/test6/train_finetune.py
+      retrain_runbook: pipelines/radheck/Retrain-Radheck-Test6.md
       research_notebook: research_notebooks/test6_stunet/test6_stunet_inference_explore.ipynb
     evaluation:
-      metrics: [matched organ Dice, qualitative viz]
+      model_dataset_id: 650
+      metrics: [GTVp Dice, GTVn Dice]
+      unified_ts: true
     results:
-      primary_metric: matched_organ_Dice
+      primary_metric: GTVp Dice
+      secondary_metrics: [GTVn Dice]
       radcure:
-        name_matches: 0
-        n_cases: 2
-        note: "naive norm_name match; ~0–3 STU labels/case on H&N FOV"
+        mean_dice_gtvp: null
+        mean_dice_gtvn: null
+        n_cases: null
       hecktor:
-        name_matches: 0
-        n_cases: 2
-        note: "same; CHUM-023 had 0 non-zero STU labels on first run"
-      notes: >
-        Inference explore chapter closed (Colab, STU-Net-S, 4 cases).
-        Matched organ Dice nan (0 name overlaps). Tumor Dice N/A.
-        Next after Test5: synonym map, then fine-tune. See
-        research_notebooks/test6_stunet/README.md (lessons learnt).
+        mean_dice_gtvp: null
+        mean_dice_gtvn: null
+        n_cases: null
+    notes: |
+      Inference explore (prior): configs/test6_stunet_inference_explore.yaml (explored).
+      Fine-tune path: setup_stunet → link_test5_dataset → train_finetune → evaluate.
+      Dataset650 symlink from Test5; no TS reprocess.
 
 # ---------------------------------------------------------------------------
 # Next experiment — naming rules (see experiments/README.md § Naming convention)

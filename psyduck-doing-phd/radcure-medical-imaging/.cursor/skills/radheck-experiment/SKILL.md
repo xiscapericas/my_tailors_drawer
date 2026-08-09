@@ -24,8 +24,9 @@ description: >-
 | Preprocess RADCURE | `process_all_cases.py`, `split_dataset.py` |
 | Build RADHECK Dataset650 | `python -m pipelines.radheck.build_nnunet_dataset` |
 | **Test5 from scratch** | `clean_workspace` → `transform_cases` → `build_datasets` — see `Retrain-Radheck-Test5.md` |
+| **Test6 STU-Net FT** | `setup_stunet` → `link_test5_dataset` → `train_finetune` → `evaluate` — see `Retrain-Radheck-Test6.md` |
 | nnUNet train/eval | `train_nnunet.py` |
-| HECKTOR test eval | `python -m pipelines.hecktor.test_pipeline` |
+| HECKTOR test eval | `python -m pipelines.hecktor.test_pipeline` (Test5 unified Ts preferred) |
 
 **Primary metric:** GTVp Dice on **both** RADCURE test (650 `imagesTs`) and HECKTOR test (152 `imagesTs`).
 

@@ -1,0 +1,82 @@
+# Test6 — STU-Net fine-tune vs Test5 (same Dataset650 / GTVp+GTVn / splits)
+#
+# One-line rule: Test6 changes the model to STU-Net fine-tuning
+# (TotalSegmentator-pretrained → our labels) compared to test5; dataset,
+# preprocess, tumor labels, and Tr/Ts membership stay identical.
+#
+# Explore (inference-only) history: configs/test6_stunet_inference_explore.yaml
+
+experiment:
+  id: test6
+  name: RADHECK — STU-Net fine-tune (GTVp/GTVn) vs Test5
+  status: planned
+  changed_from: test5
+  hypothesis: >
+    Fine-tuning TotalSegmentator-pretrained STU-Net on the same Test5 Dataset650
+    (separate GTVp/GTVn, improved preprocess, unified Tr/Ts) improves GTVp/GTVn
+    Dice vs Test5 nnUNet (700 epochs NoMirroring) by transferring large-scale
+    anatomical priors.
+
+training:
+  needs_dataset_build: false  # reuse Test5 Dataset650 (symlink)
+  needs_plan_preprocess: true  # STU-Net local preprocess under TEST6_WORK_ROOT
+  reuse_preprocessed_from: null
+
+  cohorts: [radcure, hecktor]
+  dataset_id: 650
+  dataset_folder: ${RADHECK_DATASET_TEST6}
+  nnunet_retrain_path: ${RETRAIN_RADHECK_TEST6}
+  nnunet_preprocessed_path: null
+
+  tumor_label_mode: separate
+  background_mode: improved  # inherited from Test5 labels — no reprocess
+  model: STU-Net-S
+  variant: small  # small|base|large|huge
+  trainer: STUNetTrainer_small_ft
+  pretrained_on: TotalSegmentator
+  pretrained_weights: ${TEST6_WORK_ROOT}/weights/small_ep4k.model
+  configuration: 3d_fullres
+  fold: 0
+  epochs: 1000  # STU-Net FT trainer default
+
+  sources:
+    dataset650: ${TEST6_DATASET650}  # Test5 Dataset650_TotalSegmentator
+  setup:
+    - python -m pipelines.test6.setup_stunet
+    - python -m pipelines.test6.link_test5_dataset
+  train:
+    - python -m pipelines.test6.train_finetune --step prepare
+    - python -m pipelines.test6.train_finetune --step plan
+    - python -m pipelines.test6.train_finetune --step train
+
+  env:
+    nnUNet_compile: "false"
+    CUDA_VISIBLE_DEVICES: "1"
+    NNUNET_DISABLE_TTA: "true"
+
+evaluation:
+  model_dataset_id: 650
+  metrics:
+    - GTVp Dice
+    - GTVn Dice
+  unified_ts: true  # RADCURE + HECKTOR held-out in Dataset650 imagesTs
+  steps:
+    - python -m pipelines.test6.evaluate
+    - python -m pipelines.test6.evaluate --skip-predict --viz
+  output_predictions: ${RADHECK_DATASET_TEST6}/labelsTs_predicted
+  output_viz: ${RADHECK_DATASET_TEST6}/labelsTs_dice_and_viz
+  logs: ${RETRAIN_RADHECK_TEST6}/logs
+
+results:
+  primary_metric: GTVp Dice
+  secondary_metrics:
+    - GTVn Dice
+  radcure:
+    mean_dice_gtvp: null
+    mean_dice_gtvn: null
+    n_cases: null
+  hecktor:
+    mean_dice_gtvp: null
+    mean_dice_gtvn: null
+    n_cases: null
+  notes: "Planned — see pipelines/radheck/Retrain-Radheck-Test6.md"

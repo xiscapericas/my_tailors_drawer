@@ -34,11 +34,14 @@ RETRAIN_RADHECK_TEST3: /path/to/work/nnunet_radheck_test_3_retrain
 # TEST5_DATASET_LINK_MODE: hardlink  # hardlink | symlink | copy
 # ORGAN_DICTIONARY_PATH: /media/HDD_8TB/xisca/work/retrain_test5/organ_dictionary_test5.json
 
-# TEST6_WORK_ROOT: /path/to/work/research_test6_stunet
+# Test6 — STU-Net fine-tune (reuses Test5 Dataset650; no TS reprocess)
+# RETRAIN_RADHECK_TEST6: /media/HDD_8TB/xisca/work/retrain_test6_stunet/nnunet_retrain
+# RADHECK_DATASET_TEST6: /media/HDD_8TB/xisca/work/retrain_test6_stunet/Dataset650_TotalSegmentator
+# TEST6_WORK_ROOT: /media/HDD_8TB/xisca/work/retrain_test6_stunet
+# TEST6_DATASET650: /media/HDD_8TB/xisca/work/retrain_test5/Dataset650_TotalSegmentator
 # TEST6_STU_VARIANT: small   # small | base | large | huge
-# TEST6_ANATOMY_QC: 0.50
-# RADCURE_REPO: /path/to/radcure-medical-imaging
-# (AWS_* + HECKTOR_S3_URI used by the Test6 notebook for download)
+# TEST6_SPLITS_REFERENCE: /media/HDD_8TB/xisca/work/retrain_test5/nnunet_retrain/nnUNet_preprocessed
+# (legacy explore notebook used research_test6_stunet + AWS download — optional)
 
 ORGAN_DICTIONARY_PATH: /path/to/radcure_dictionary.json
 NNUNET_PATH: /path/to/nnUNet

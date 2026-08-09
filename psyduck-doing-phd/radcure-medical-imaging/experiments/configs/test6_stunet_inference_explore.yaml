@@ -1,12 +1,10 @@
-# Test6 — STU-Net exploration (research / inference-only)
+# Test6 — STU-Net inference explore (HISTORICAL — research / inference-only)
 #
-# One-line rule: Test6 explores STU-Net (TotalSegmentator-pretrained scalable
-# nnU-Net) as an organ foundation model compared to our RADHECK nnUNet pipeline;
-# no full Dataset650 retrain until fine-tuning is decided.
+# Superseded for training by: configs/test6_radheck_stunet_finetune.yaml
+# Keep this file as the record of the Colab explore chapter.
 #
-# Notebook flow: AWS download → Test5 CaseProcessor preprocess → STU-Net predict → Dice.
-#
-# Status: inference explore DONE (explored). Synonym map + fine-tune AFTER Test5.
+# One-line rule (explore): Test6 explored STU-Net pretrained inference vs our
+# RADHECK nnUNet pipeline; pretrained model has no GTVp/GTVn.
 
 experiment:
   id: test6
