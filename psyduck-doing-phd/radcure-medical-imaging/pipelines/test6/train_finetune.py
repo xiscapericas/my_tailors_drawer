@@ -33,6 +33,9 @@ try:
 except ImportError:
     pass
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+from pipelines.radheck.build_nnunet_dataset import write_dataset_json
 from pipelines.test6.paths import (
     TRAINER_FT,
     WEIGHT_FILENAMES,
@@ -157,10 +160,56 @@ def _copy_splits_final(dataset: Path, preprocessed: Path, dataset_name: str) -> 
     )
 
 
+def _organ_dictionary_path(work: Path) -> Path:
+    env = os.getenv("ORGAN_DICTIONARY_PATH", "").strip()
+    if env:
+        p = Path(env).expanduser()
+        if p.is_file():
+            return p
+    for cand in (
+        work / "organ_dictionary_test5.json",
+        Path(os.getenv("TEST5_WORK_ROOT", "")) / "organ_dictionary_test5.json",
+        _REPO_ROOT / "image_processor" / "resources" / "organ_dictionary_hn_canonical.json",
+    ):
+        if cand and cand.is_file():
+            return cand
+    raise FileNotFoundError(
+        "No organ dictionary found. Set ORGAN_DICTIONARY_PATH or run "
+        "python -m pipelines.test6.link_test5_dataset"
+    )
+
+
+def _refresh_dataset_json(work: Path, dataset: Path) -> None:
+    """
+    Ensure dataset.json labels include GTVp/GTVn (91/92).
+
+    Test5 NIfTIs are fine; an outdated dataset.json listing only 0–90 makes
+    nnUNet --verify_dataset_integrity fail on label 92 (GTVn).
+    """
+    organ = _organ_dictionary_path(work)
+    with open(organ) as f:
+        labels = json.load(f)
+    for need in ("GTVp", "GTVn"):
+        if need not in labels:
+            raise RuntimeError(f"{organ} missing {need} — refuse to plan")
+    n_tr = len(list((dataset / "imagesTr").glob("*_0000.nii.gz")))
+    write_dataset_json(
+        str(dataset),
+        dataset.name,
+        str(organ),
+        num_training=n_tr,
+    )
+    print(
+        f"Refreshed dataset.json labels from {organ} "
+        f"(GTVp={labels['GTVp']}, GTVn={labels['GTVn']}, numTraining={n_tr})"
+    )
+
+
 def step_prepare(work: Path) -> None:
     paths = _ensure_env(work)
     dataset = _dataset_folder(work)
     _link_raw(work, dataset, paths["raw"])
+    _refresh_dataset_json(work, dataset)
     n_tr = len(list((dataset / "imagesTr").glob("*_0000.nii.gz")))
     n_ts = len(list((dataset / "imagesTs").glob("*_0000.nii.gz")))
     print(f"Prepare OK — Tr={n_tr} Ts={n_ts} (Test5 unified Dataset650)")
@@ -171,6 +220,7 @@ def step_plan(work: Path, dataset_id: str = "650") -> None:
     paths = _ensure_env(work)
     dataset = _dataset_folder(work)
     _link_raw(work, dataset, paths["raw"])
+    _refresh_dataset_json(work, dataset)
     check_numpy_blosc2()
     print(f"Using Python: {sys.executable}")
     cmd, env = nnunet_cmd(

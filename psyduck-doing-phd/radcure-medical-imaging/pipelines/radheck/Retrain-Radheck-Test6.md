@@ -137,6 +137,17 @@ Dice CSV under `${NNUNET_RETRAIN_PATH}/logs/`; cohort columns when
 - Explore notebook stays research-only; this runbook is the **implementation** path.
 - Do **not** re-run `transform_cases` / TotalSegmentator for Test6.
 
+### Troubleshooting: unexpected labels (e.g. Found `92`)
+
+You do **not** need to re-run TotalSegmentator. Masks already contain
+`GTVp=91` / `GTVn=92`; the failure means `dataset.json` only listed labels
+`0–90`. `train_finetune` now rewrites `dataset.json` from the Test5 organ
+dictionary before plan. Re-run:
+
+```bash
+python -m pipelines.test6.train_finetune --step plan
+```
+
 ### Troubleshooting: `numpy.dtype size changed` / blosc2
 
 Plan/predict must use the **same** Python as `python -m pipelines.test6…`,
