@@ -198,11 +198,11 @@ def pin_test7_env(work: Path | None = None) -> dict:
             os.environ["NNUNET_PATH"] = nnunet_src
     if nnunet_src:
         src = Path(nnunet_src).expanduser()
-        root = src if (src / "nnunetv2").is_dir() else (
+        nnunet_root = src if (src / "nnunetv2").is_dir() else (
             src.parent if src.name == "nnunetv2" else None
         )
-        if root is not None and root.is_dir():
-            root_s = str(root.resolve())
+        if nnunet_root is not None and nnunet_root.is_dir():
+            root_s = str(nnunet_root.resolve())
             existing = os.environ.get("PYTHONPATH", "")
             if not existing.startswith(root_s):
                 os.environ["PYTHONPATH"] = (
