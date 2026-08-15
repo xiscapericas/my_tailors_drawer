@@ -48,6 +48,7 @@ Connected map: install, pipeline scripts, experiment registry, nnUNet reference,
 | Start Test5 (improved preprocess → RADHECK_{N} → 700 epochs) | [Retrain-Radheck-Test5.md](../pipelines/radheck/Retrain-Radheck-Test5.md) |
 | Start Test6 (STU-Net fine-tune on Test5 Dataset650) | [Retrain-Radheck-Test6.md](../pipelines/radheck/Retrain-Radheck-Test6.md) |
 | Test6 STU-Net explore notebook (historical) | [test6_stunet/README.md](../research_notebooks/test6_stunet/README.md) |
+| Start Test7 (probability outputs + region-vs-GTVp curves) | [Retrain-Radheck-Test7.md](../pipelines/radheck/Retrain-Radheck-Test7.md) |
 
 ---
 

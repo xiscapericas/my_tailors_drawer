@@ -278,11 +278,55 @@ experiments:
       Fine-tune path: setup_stunet → link_test5_dataset → train_finetune → evaluate.
       Dataset650 symlink from Test5; no TS reprocess.
 
+  test7:
+    id: test7
+    name: RADHECK — probability outputs + region-vs-GTVp curves vs Test5
+    status: planned
+    config_file: configs/test7_radheck_probability_outputs.yaml
+    changed_from: test5
+    hypothesis: >
+      If P(GTVp) ≥ 0.80 for a voxel — even when another class has higher
+      probability — the voxel can still be treated as GTVp. Soft outputs and
+      region-vs-GTVp probability curves quantify that rule better than hard Dice.
+    training:
+      cohorts: [radcure, hecktor]
+      dataset_id: 650
+      tumor_label_mode: separate
+      reuse_test5_dataset650: true
+      reuse_test5_model: true
+      reuse_test6_splits: true  # Test6 Tr/Va/Ts = Test5 Dataset650 membership
+      needs_train: false
+      trainer: nnUNetTrainer_700epochs_NoMirroring
+      epochs: 700
+      configuration: 3d_fullres
+      setup_script: pipelines/test7/link_dataset.py
+      predict_script: pipelines/test7/predict_probabilities.py
+      retrain_runbook: pipelines/radheck/Retrain-Radheck-Test7.md
+    evaluation:
+      model_dataset_id: 650
+      primary_analysis: region_tumor_probabilities_vs_dice_curves
+      metrics:
+        - region_vs_GTVp probability curves
+        - P(GTVp)>=0.80 hypothesis
+      visualization: probability_visualisation
+      unified_ts: true
+    results:
+      primary_metric: region_tumor_probabilities_vs_dice_curves
+      radcure:
+        n_cases: null
+      hecktor:
+        n_cases: null
+    notes: |
+      No reprocess / no retrain. Clean-link Test5 Dataset650 (same split as Test6).
+      Predict with Test5 nnUNet + save_probabilities → slim crop (.slim.npz,
+      float16, tumor ROI) → curves + alpha viz. Raw .npz deleted after slim.
+      Hard Dice is not the primary metric.
+
 # ---------------------------------------------------------------------------
 # Next experiment — naming rules (see experiments/README.md § Naming convention)
 # ---------------------------------------------------------------------------
 #
-# Before Test7+:
+# Before Test8+:
 #   1. "Test{N} changes ___ compared to {changed_from}; everything else is identical."
 #   2. configs/test{N}_{cohort}_{variable}.yaml
 #   3. local.yaml: RETRAIN_RADHECK_TEST{N} → .../nnunet_radheck_test_{N}_retrain

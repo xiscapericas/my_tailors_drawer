@@ -25,6 +25,7 @@ description: >-
 | Build RADHECK Dataset650 | `python -m pipelines.radheck.build_nnunet_dataset` |
 | **Test5 from scratch** | `clean_workspace` → `transform_cases` → `build_datasets` — see `Retrain-Radheck-Test5.md` |
 | **Test6 STU-Net FT** | `setup_stunet` → `link_test5_dataset` → `train_finetune` → `evaluate` — see `Retrain-Radheck-Test6.md` |
+| **Test7 probability outputs** | `link_dataset` → `predict_probabilities` (slim crop) → curves → `probability_visualisation` — see `Retrain-Radheck-Test7.md` |
 | nnUNet train/eval | `train_nnunet.py` |
 | HECKTOR test eval | `python -m pipelines.hecktor.test_pipeline` (Test5 unified Ts preferred) |
 

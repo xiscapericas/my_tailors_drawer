@@ -60,29 +60,44 @@ def get_eval_viz_output_dir(config: TrainingConfig) -> str:
     return os.path.join(config.dataset_folder, "labelsTs_dice_and_viz")
 
 
-def predict_on_test_set(config: TrainingConfig, log_file: str = None):
+def predict_on_test_set(
+    config: TrainingConfig,
+    log_file: str = None,
+    save_probabilities: bool = False,
+):
     """
     Run predictions on test set.
-    
+
     Parameters
     ----------
     config : TrainingConfig
         Configuration object
     log_file : str, optional
         Path to log file. If None, uses default.
+    save_probabilities : bool
+        If True, pass ``-save_probabilities`` so nnUNetv2 also writes
+        per-class softmax ``.npz`` next to hard masks (used by Test7).
+        Can also be enabled with env ``NNUNET_SAVE_PROBABILITIES=1``.
     """
     if log_file is None:
         log_file = os.path.join(config.log_dir, f'prediction_d{config.dataset_id}.log')
-    
+
+    env_probs = os.getenv("NNUNET_SAVE_PROBABILITIES", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    save_probabilities = bool(save_probabilities or env_probs)
+
     paths = config.get_dataset_paths()
     input_dir = paths['imagesTs']
     output_dir = get_predictions_output_dir(config)
-    
+
     if not os.path.exists(input_dir):
         raise FileNotFoundError(f"Test images folder not found: {input_dir}")
-    
+
     os.makedirs(output_dir, exist_ok=True)
-    
+
     print(f"Running predictions on test set...")
     print(f"  Input: {input_dir}")
     print(f"  Output: {output_dir}")
@@ -91,8 +106,9 @@ def predict_on_test_set(config: TrainingConfig, log_file: str = None):
     print(f"  Trainer: {config.trainer}")
     print(f"  Fold: {config.prediction_fold}")
     print(f"  TTA: {'enabled' if not config.disable_tta else 'disabled'}")
+    print(f"  Save probabilities: {save_probabilities}")
     print(f"  Log file: {log_file}")
-    
+
     cmd = [
         'nnUNetv2_predict',
         '-i', input_dir,
@@ -102,12 +118,14 @@ def predict_on_test_set(config: TrainingConfig, log_file: str = None):
         '-tr', config.trainer,
         '-f', str(config.prediction_fold)
     ]
-    
+
     if config.disable_tta:
         cmd.append('--disable_tta')
-    
+    if save_probabilities:
+        cmd.append('-save_probabilities')
+
     print(f"Running: {' '.join(cmd)}")
-    
+
     with open(log_file, 'w') as log:
         result = subprocess.run(
             cmd,
@@ -115,7 +133,7 @@ def predict_on_test_set(config: TrainingConfig, log_file: str = None):
             stderr=subprocess.STDOUT,
             text=True
         )
-    
+
     if result.returncode == 0:
         print(f"✓ Predictions completed successfully")
         print(f"  Predictions saved to: {output_dir}")
@@ -124,7 +142,7 @@ def predict_on_test_set(config: TrainingConfig, log_file: str = None):
         print(f"✗ Prediction failed (exit code: {result.returncode})")
         print(f"  Check log file: {log_file}")
         raise RuntimeError(f"Prediction failed. Check {log_file} for details.")
-    
+
     return output_dir
 
 

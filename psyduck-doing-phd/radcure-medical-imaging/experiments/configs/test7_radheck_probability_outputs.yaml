@@ -1,0 +1,86 @@
+# Test7 — soft (probability) outputs vs hard Dice (Test5 model, Test6 splits)
+#
+# One-line rule: Test7 changes inference/evaluation to per-class probability
+# outputs (plus region-vs-GTVp probability curves and alpha visualization)
+# compared to test5; Dataset650 / Tr/Va/Ts (Test6 = Test5 link), Test5 model
+# weights, and preprocess stay identical — no reprocess, no retrain.
+
+experiment:
+  id: test7
+  name: RADHECK — probability outputs + region-vs-GTVp curves vs Test5
+  status: planned
+  changed_from: test5
+  hypothesis: >
+    If P(GTVp) ≥ 0.80 for a voxel — even when another class has higher
+    probability — the voxel can still be treated as GTVp. Soft outputs and
+    region-vs-GTVp probability curves quantify that rule better than hard Dice.
+
+training:
+  needs_dataset_build: false  # reuse Test5 Dataset650 (clean link, like Test6)
+  needs_plan_preprocess: false  # no re-preprocess
+  needs_train: false  # reuse Test5 nnUNet weights
+  reuse_preprocessed_from: test5
+  reuse_model_from: test5
+
+  cohorts: [radcure, hecktor]
+  dataset_id: 650
+  dataset_folder: ${RADHECK_DATASET_TEST7}
+  nnunet_retrain_path: ${RETRAIN_RADHECK_TEST7}
+  # Predict loads weights from Test5 results (see pin_test7_env)
+  test5_nnunet_retrain_path: ${RETRAIN_RADHECK_TEST5}
+
+  tumor_label_mode: separate
+  background_mode: improved  # inherited from Test5 labels
+  trainer: nnUNetTrainer_700epochs_NoMirroring
+  configuration: 3d_fullres
+  fold: 0
+  epochs: 700  # same checkpoint as Test5; not re-trained here
+
+  sources:
+    dataset650: ${TEST7_DATASET650}  # Test5 Dataset650_TotalSegmentator
+  setup:
+    - python -m pipelines.test7.link_dataset
+  predict:
+    - python -m pipelines.test7.predict_probabilities
+    # (runs slim_probabilities by default: crop + float16 + delete raw .npz)
+  analysis:
+    - python -m pipelines.test7.region_tumor_probabilities_vs_dice_curves
+    - python -m pipelines.test7.probability_visualisation
+
+  env:
+    nnUNet_compile: "false"
+    CUDA_VISIBLE_DEVICES: "1"
+    NNUNET_DISABLE_TTA: "true"
+
+evaluation:
+  model_dataset_id: 650
+  primary_analysis: region_tumor_probabilities_vs_dice_curves
+  metrics:
+    - region_vs_GTVp probability curves
+    - P(GTVp)>=0.80 hypothesis (p-value)
+  note: >
+    Hard GTVp Dice is not the primary metric. Soft probabilities drive
+    curves + probability_visualisation.
+  unified_ts: true  # RADCURE + HECKTOR held-out in Dataset650 imagesTs (Test6 split)
+  steps:
+    - python -m pipelines.test7.predict_probabilities
+    - python -m pipelines.test7.region_tumor_probabilities_vs_dice_curves
+    - python -m pipelines.test7.probability_visualisation
+  output_predictions: ${TEST7_WORK_ROOT}/predictions/labelsTs_predicted
+  output_probabilities: ${TEST7_WORK_ROOT}/predictions/labelsTs_probabilities
+  # Prefer {case}.slim.npz (cropped float16); raw .npz only transient during predict
+  output_curves: ${TEST7_WORK_ROOT}/region_tumor_probabilities_vs_dice_curves
+  output_viz: ${TEST7_WORK_ROOT}/predictions/labelsTs_probability_viz
+  logs: ${RETRAIN_RADHECK_TEST7}/logs
+
+results:
+  primary_metric: region_tumor_probabilities_vs_dice_curves
+  secondary_metrics:
+    - P(GTVp)>=0.80 hypothesis p-value
+  radcure:
+    mean_dice_gtvp: null  # not primary for Test7
+    n_cases: null
+  hecktor:
+    mean_dice_gtvp: null
+    n_cases: null
+  notes: "Planned — see pipelines/radheck/Retrain-Radheck-Test7.md"

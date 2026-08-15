@@ -43,5 +43,13 @@ RETRAIN_RADHECK_TEST3: /path/to/work/nnunet_radheck_test_3_retrain
 # TEST6_SPLITS_REFERENCE: /media/HDD_8TB/xisca/work/retrain_test5/nnunet_retrain/nnUNet_preprocessed
 # (legacy explore notebook used research_test6_stunet + AWS download — optional)
 
+# Test7 — probability outputs (reuse Test5 model + Dataset650 / Test6 splits; no retrain)
+# RETRAIN_RADHECK_TEST7: /media/HDD_8TB/xisca/work/retrain_test7_prob/nnunet_retrain
+# RADHECK_DATASET_TEST7: /media/HDD_8TB/xisca/work/retrain_test7_prob/Dataset650_TotalSegmentator
+# TEST7_WORK_ROOT: /media/HDD_8TB/xisca/work/retrain_test7_prob
+# TEST7_DATASET650: /media/HDD_8TB/xisca/work/retrain_test5/Dataset650_TotalSegmentator
+# RETRAIN_RADHECK_TEST5: /media/HDD_8TB/xisca/work/retrain_test5/nnunet_retrain  # model weights
+# TEST5_WORK_ROOT: /media/HDD_8TB/xisca/work/retrain_test5
+
 ORGAN_DICTIONARY_PATH: /path/to/radcure_dictionary.json
 NNUNET_PATH: /path/to/nnUNet
