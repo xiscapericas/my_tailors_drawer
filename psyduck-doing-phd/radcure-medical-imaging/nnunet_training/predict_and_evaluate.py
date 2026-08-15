@@ -75,7 +75,7 @@ def predict_on_test_set(
     log_file : str, optional
         Path to log file. If None, uses default.
     save_probabilities : bool
-        If True, pass ``-save_probabilities`` so nnUNetv2 also writes
+        If True, pass ``--save_probabilities`` so nnUNetv2 also writes
         per-class softmax ``.npz`` next to hard masks (used by Test7).
         Can also be enabled with env ``NNUNET_SAVE_PROBABILITIES=1``.
     """
@@ -122,7 +122,8 @@ def predict_on_test_set(
     if config.disable_tta:
         cmd.append('--disable_tta')
     if save_probabilities:
-        cmd.append('-save_probabilities')
+        # nnUNetv2 CLI uses long-form --save_probabilities (not -save_probabilities)
+        cmd.append('--save_probabilities')
 
     print(f"Running: {' '.join(cmd)}")
 

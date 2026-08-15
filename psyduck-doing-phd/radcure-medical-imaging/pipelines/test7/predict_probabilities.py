@@ -75,7 +75,7 @@ def _print_log_tail(log_file: Path, n: int = 40) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Test7: nnUNet predict with -save_probabilities (Test5 model)"
+        description="Test7: nnUNet predict with --save_probabilities (Test5 model)"
     )
     parser.add_argument("--work-root", default=str(work_root()))
     parser.add_argument("--fold", type=int, default=int(os.getenv("NNUNET_FOLD", "0")))
@@ -178,7 +178,7 @@ def main() -> None:
         args.trainer,
         "-f",
         str(args.fold),
-        "-save_probabilities",
+        "--save_probabilities",
     ]
     if disable_tta:
         cli_args.append("--disable_tta")
