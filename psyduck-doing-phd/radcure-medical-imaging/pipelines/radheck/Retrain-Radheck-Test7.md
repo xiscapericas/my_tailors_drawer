@@ -23,8 +23,13 @@ Trainer: **`nnUNetTrainer_700epochs_NoMirroring`** (Test5 — not STU-Net).
 
 ```bash
 cd /path/to/radcure-medical-imaging
-source .venv/bin/activate
+source .venv/bin/activate          # MUST be .venv, not system / ~/.local
 set -a && source .env && set +a
+
+# Confirm you are NOT on ~/.local (this caused the blosc2/numpy failure):
+which python
+which nnUNetv2_predict
+# both should be under …/radcure-medical-imaging/.venv/bin/
 
 export TEST7_WORK_ROOT=/media/HDD_8TB/xisca/work/retrain_test7_prob
 export TEST5_WORK_ROOT=/media/HDD_8TB/xisca/work/retrain_test5
@@ -35,6 +40,15 @@ export nnUNet_compile=false
 mkdir -p "$TEST7_WORK_ROOT"
 
 df -h /media/HDD_8TB   # raw .npz is large briefly; slim crops are much smaller
+
+# Once per env (custom 700-epoch trainer):
+python -m nnunet_training.install_trainer_variants
+```
+
+If you still see `numpy.dtype size changed` / blosc2 errors **inside** `.venv`:
+
+```bash
+pip install --force-reinstall --no-cache-dir numpy blosc2
 ```
 
 In `experiments/configs/local.yaml` (optional but recommended):

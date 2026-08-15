@@ -288,3 +288,76 @@ def competing_region_names(organ_dict: dict[str, int]) -> list[str]:
         for name in organ_dict
         if name not in _EXCLUDE_COMPETING and isinstance(organ_dict[name], int)
     )
+
+
+# Console-script name → (module, entry_function) from nnUNetv2
+_NNUNET_ENTRYPOINTS = {
+    "nnUNetv2_predict": (
+        "nnunetv2.inference.predict_from_raw_data",
+        "predict_entry_point",
+    ),
+}
+
+
+def check_numpy_blosc2() -> None:
+    """Fail early if PATH/venv numpy and blosc2 are ABI-incompatible."""
+    import sys
+
+    try:
+        import numpy  # noqa: F401
+        import blosc2  # noqa: F401
+    except ValueError as e:
+        if "numpy.dtype size changed" in str(e) or "binary incompatibility" in str(e):
+            raise RuntimeError(
+                f"numpy/blosc2 binary mismatch under {sys.executable}.\n"
+                "Fix in the *same* env you use for Test7:\n"
+                "  which python; which nnUNetv2_predict\n"
+                "  # both must be under the project .venv, not ~/.local\n"
+                "  pip install --force-reinstall --no-cache-dir 'numpy' 'blosc2'\n"
+                "Then re-run: python -m pipelines.test7.predict_probabilities"
+            ) from e
+        raise
+    except ImportError:
+        pass
+
+
+def nnunet_cmd(name: str, *cli_args: str) -> tuple[list[str], dict]:
+    """
+    Build argv + env for an nnUNetv2 CLI using *this* Python, not PATH.
+
+    Bare ``nnUNetv2_predict`` on PATH often resolves to ``~/.local`` (Python 3.9)
+    and triggers ``numpy.dtype size changed`` / blosc2 ABI errors.
+    """
+    import sys
+
+    env = os.environ.copy()
+    here = Path(sys.executable).resolve().parent / name
+    if here.is_file() and os.access(here, os.X_OK):
+        return [str(here), *cli_args], env
+
+    entry = _NNUNET_ENTRYPOINTS.get(name)
+    if entry is None:
+        raise FileNotFoundError(
+            f"nnUNet CLI {name!r} not next to {sys.executable} "
+            f"and no entry-point fallback.\n"
+            "Use the project .venv (not ~/.local)."
+        )
+    mod, func = entry
+    argv = [name, *cli_args]
+    code = (
+        f"import sys; from {mod} import {func}; "
+        f"sys.argv = {argv!r}; {func}()"
+    )
+    return [sys.executable, "-c", code], env
+
+
+def expected_model_dir(test5_retrain: Path | None = None) -> Path:
+    """Expected Test5 fold-0 model folder under nnUNet_results."""
+    root = (test5_retrain or test5_retrain_path()).resolve()
+    return (
+        root
+        / "nnUNet_results"
+        / "Dataset650_TotalSegmentator"
+        / f"{DEFAULT_TRAINER}__nnUNetPlans__{DEFAULT_CONFIGURATION}"
+        / "fold_0"
+    )

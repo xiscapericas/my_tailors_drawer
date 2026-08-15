@@ -8,9 +8,12 @@ Uses Test5 ``nnUNetTrainer_700epochs_NoMirroring`` weights via
   labelsTs_predicted/       hard argmax NIfTI (nnUNet default)
   labelsTs_probabilities/   slim cropped float16 ``*.slim.npz`` (raw .npz deleted)
 
+Important: runs ``nnUNetv2_predict`` via the *current* Python (project .venv),
+never bare PATH ``~/.local/bin/nnUNetv2_predict`` (numpy/blosc2 ABI traps).
+
 Example:
 
-  source …/TEST7_ENV.sh   # optional
+  source …/TEST7_ENV.sh
   python -m pipelines.test7.predict_probabilities
 """
 
@@ -37,6 +40,8 @@ if str(_REPO_ROOT) not in sys.path:
 from pipelines.test7.paths import (
     DEFAULT_CONFIGURATION,
     DEFAULT_DATASET_ID,
+    check_numpy_blosc2,
+    nnunet_cmd,
     pin_test7_env,
     predictions_dir,
     probabilities_dir,
@@ -46,10 +51,7 @@ from pipelines.test7.paths import (
 
 
 def _relocate_npz(pred_dir: Path, prob_dir: Path) -> int:
-    """
-    nnUNetv2 writes ``{case}.npz`` next to ``{case}.nii.gz``.
-    Move/copy them into ``labelsTs_probabilities/`` for a clear layout.
-    """
+    """Move ``{case}.npz`` from pred dir into ``labelsTs_probabilities/``."""
     prob_dir.mkdir(parents=True, exist_ok=True)
     moved = 0
     for npz in pred_dir.glob("*.npz"):
@@ -59,6 +61,16 @@ def _relocate_npz(pred_dir: Path, prob_dir: Path) -> int:
         shutil.move(str(npz), str(dest))
         moved += 1
     return moved
+
+
+def _print_log_tail(log_file: Path, n: int = 40) -> None:
+    if not log_file.is_file():
+        return
+    lines = log_file.read_text(errors="replace").splitlines()
+    print(f"\n----- last {min(n, len(lines))} lines of {log_file} -----")
+    for line in lines[-n:]:
+        print(line)
+    print("----- end log tail -----\n")
 
 
 def main() -> None:
@@ -94,6 +106,11 @@ def main() -> None:
     parser.add_argument("--slim-margin", type=int, default=8)
     parser.add_argument("--slim-dilate", type=int, default=2)
     parser.add_argument("--slim-top-k", type=int, default=5)
+    parser.add_argument(
+        "--skip-install-trainer",
+        action="store_true",
+        help="Skip installing nnUNetTrainer_700epochs_NoMirroring into this env",
+    )
     args = parser.parse_args()
 
     work = Path(args.work_root).expanduser().resolve()
@@ -108,6 +125,35 @@ def main() -> None:
     if not images_ts.is_dir():
         raise FileNotFoundError(f"imagesTs not found: {images_ts}")
 
+    print(f"Using Python: {sys.executable}")
+    if "/.local/" in sys.executable or sys.executable.startswith(
+        str(Path.home() / ".local")
+    ):
+        print(
+            "WARNING: Python looks like ~/.local — prefer the project .venv:\n"
+            "  cd …/radcure-medical-imaging && source .venv/bin/activate"
+        )
+    check_numpy_blosc2()
+
+    if not args.skip_install_trainer:
+        print("Ensuring custom trainer is installed in this env…")
+        from nnunet_training.install_trainer_variants import ensure_trainer_installed
+
+        ensure_trainer_installed(args.trainer)
+
+    model_dir = (
+        paths["test5_retrain"]
+        / "nnUNet_results"
+        / "Dataset650_TotalSegmentator"
+        / f"{args.trainer}__nnUNetPlans__{args.configuration}"
+        / f"fold_{args.fold}"
+    )
+    if not model_dir.is_dir():
+        raise FileNotFoundError(
+            f"Test5 model folder not found:\n  {model_dir}\n"
+            "Check RETRAIN_RADHECK_TEST5 / that Test5 train completed."
+        )
+
     pred_dir = predictions_dir(work)
     prob_dir = probabilities_dir(work)
     pred_dir.mkdir(parents=True, exist_ok=True)
@@ -119,8 +165,7 @@ def main() -> None:
         "yes",
     )
 
-    cmd = [
-        "nnUNetv2_predict",
+    cli_args = [
         "-i",
         str(images_ts),
         "-o",
@@ -136,13 +181,16 @@ def main() -> None:
         "-save_probabilities",
     ]
     if disable_tta:
-        cmd.append("--disable_tta")
+        cli_args.append("--disable_tta")
+
+    cmd, env = nnunet_cmd("nnUNetv2_predict", *cli_args)
 
     log_file = paths["logs"] / f"prediction_probs_d{args.dataset_id}.log"
     print("=" * 70)
     print("Test7 — predict with probabilities (Test5 model)")
     print(f"  nnUNet_results: {os.environ.get('nnUNet_results')}")
     print(f"  trainer:        {args.trainer}")
+    print(f"  model:          {model_dir}")
     print(f"  input:          {images_ts}")
     print(f"  hard masks:     {pred_dir}")
     print(f"  probabilities:  {prob_dir}")
@@ -156,18 +204,21 @@ def main() -> None:
             stdout=log,
             stderr=subprocess.STDOUT,
             text=True,
-            env=os.environ.copy(),
+            env=env,
         )
     if result.returncode != 0:
+        _print_log_tail(log_file)
         raise RuntimeError(
-            f"Prediction failed (exit {result.returncode}). See {log_file}"
+            f"Prediction failed (exit {result.returncode}). See {log_file}\n"
+            "If numpy/blosc2 ABI error: use project .venv (not ~/.local):\n"
+            "  which python; which nnUNetv2_predict\n"
+            "  pip install --force-reinstall --no-cache-dir numpy blosc2"
         )
 
     if not args.keep_npz_in_pred:
         n = _relocate_npz(pred_dir, prob_dir)
         print(f"Moved {n} .npz file(s) → {prob_dir}")
     else:
-        # Still copy for the dedicated probabilities folder
         prob_dir.mkdir(parents=True, exist_ok=True)
         n = 0
         for npz in pred_dir.glob("*.npz"):
