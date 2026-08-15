@@ -189,6 +189,27 @@ def pin_test7_env(work: Path | None = None) -> dict:
     os.environ.setdefault("NNUNET_DISABLE_TTA", "true")
     os.environ["LOG_DIR"] = str(logs)
 
+    # Prefer a complete nnUNet source tree (site-packages can be incomplete)
+    nnunet_src = os.getenv("NNUNET_PATH", "").strip()
+    if not nnunet_src or nnunet_src == "/path/to/nnUNet":
+        default_src = Path("/media/HDD_8TB/xisca/envs/nnUNet")
+        if (default_src / "nnunetv2").is_dir():
+            nnunet_src = str(default_src)
+            os.environ["NNUNET_PATH"] = nnunet_src
+    if nnunet_src:
+        src = Path(nnunet_src).expanduser()
+        root = src if (src / "nnunetv2").is_dir() else (
+            src.parent if src.name == "nnunetv2" else None
+        )
+        if root is not None and root.is_dir():
+            root_s = str(root.resolve())
+            existing = os.environ.get("PYTHONPATH", "")
+            if not existing.startswith(root_s):
+                os.environ["PYTHONPATH"] = (
+                    root_s if not existing else root_s + os.pathsep + existing
+                )
+            print(f"NOTE: using NNUNET_PATH for imports → {root_s}")
+
     dataset = (root / "Dataset650_TotalSegmentator").resolve()
     if dataset.is_dir():
         _warn_stale("DATASET_FOLDER", os.getenv("DATASET_FOLDER", ""), dataset)
@@ -327,10 +348,30 @@ def nnunet_cmd(name: str, *cli_args: str) -> tuple[list[str], dict]:
 
     Bare ``nnUNetv2_predict`` on PATH often resolves to ``~/.local`` (Python 3.9)
     and triggers ``numpy.dtype size changed`` / blosc2 ABI errors.
+
+    If ``NNUNET_PATH`` points at a source tree containing ``nnunetv2/``, prepend
+    it to ``PYTHONPATH`` so a broken site-packages copy cannot win.
     """
     import sys
 
     env = os.environ.copy()
+    nnunet_src = os.getenv("NNUNET_PATH", "").strip()
+    if nnunet_src and nnunet_src != "/path/to/nnUNet":
+        src = Path(nnunet_src).expanduser()
+        # Accept either …/nnUNet (repo root) or …/nnUNet/nnunetv2
+        if (src / "nnunetv2").is_dir():
+            root = str(src.resolve())
+        elif src.name == "nnunetv2" and src.is_dir():
+            root = str(src.parent.resolve())
+        else:
+            root = ""
+        if root:
+            existing = env.get("PYTHONPATH", "")
+            env["PYTHONPATH"] = (
+                root if not existing else root + os.pathsep + existing
+            )
+            print(f"NOTE: PYTHONPATH prepend NNUNET_PATH root → {root}")
+
     here = Path(sys.executable).resolve().parent / name
     if here.is_file() and os.access(here, os.X_OK):
         return [str(here), *cli_args], env

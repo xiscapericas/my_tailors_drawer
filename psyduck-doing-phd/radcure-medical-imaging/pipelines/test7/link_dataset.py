@@ -270,8 +270,11 @@ export NNUNET_CONFIGURATION=3d_fullres
 export NNUNET_DISABLE_TTA=true
 export nnUNet_compile=false
 export CUDA_VISIBLE_DEVICES=${{CUDA_VISIBLE_DEVICES:-1}}
+# Prefer the known-good nnUNet source tree over a broken site-packages copy
+export NNUNET_PATH=${{NNUNET_PATH:-/media/HDD_8TB/xisca/envs/nnUNet}}
+export PYTHONPATH=${{NNUNET_PATH}}${{PYTHONPATH:+:$PYTHONPATH}}
 
-echo "Test7 env pinned: WORK=$TEST7_WORK_ROOT MODEL_RETRAIN=$RETRAIN_RADHECK_TEST5"
+echo "Test7 env pinned: WORK=$TEST7_WORK_ROOT MODEL_RETRAIN=$RETRAIN_RADHECK_TEST5 NNUNET_PATH=$NNUNET_PATH"
 """
     )
     print(f"Wrote {env_sh}")
