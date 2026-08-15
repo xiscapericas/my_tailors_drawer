@@ -23,16 +23,41 @@ def _set_placeholder_nnunet_paths() -> None:
 
 
 def get_nnunet_package_root() -> Path:
+    """
+    Resolve the installed ``nnunetv2`` package directory.
+
+    ``nnunetv2.__file__`` can be ``None`` for some installs/namespace layouts;
+    fall back to ``importlib.util.find_spec``.
+    """
+    import importlib.util
+
     import nnunetv2
 
-    return Path(nnunetv2.__file__).resolve().parent
+    if getattr(nnunetv2, "__file__", None):
+        return Path(nnunetv2.__file__).resolve().parent
+
+    spec = importlib.util.find_spec("nnunetv2")
+    if spec is not None:
+        if spec.submodule_search_locations:
+            return Path(list(spec.submodule_search_locations)[0]).resolve()
+        if spec.origin and spec.origin != "namespace":
+            return Path(spec.origin).resolve().parent
+
+    raise RuntimeError(
+        "Could not locate the nnunetv2 package directory "
+        f"(nnunetv2.__file__={getattr(nnunetv2, '__file__', None)!r}).\n"
+        "Install nnUNet into this venv, e.g.:\n"
+        "  pip install nnunetv2\n"
+        "or set NNUNET_PATH to a source checkout that contains nnunetv2/,\n"
+        "then: python -m nnunet_training.install_trainer_variants"
+    )
 
 
 def get_trainer_variants_install_dirs(nnunet_path: str | None = None) -> list[Path]:
     """
     Return trainer variant install folders.
 
-    Always includes the active nnunetv2 import location (pip/venv).
+    Always includes the active nnunetv2 import location (pip/venv) when resolvable.
     Also includes NNUNET_PATH when set and different (editable/source installs).
     """
     dirs: list[Path] = []
@@ -45,7 +70,10 @@ def get_trainer_variants_install_dirs(nnunet_path: str | None = None) -> list[Pa
         seen.add(resolved)
         dirs.append(path)
 
-    add(get_nnunet_package_root() / _RELATIVE_TRAINER_VARIANTS)
+    try:
+        add(get_nnunet_package_root() / _RELATIVE_TRAINER_VARIANTS)
+    except RuntimeError as e:
+        print(f"NOTE: {e}")
 
     candidate = nnunet_path or os.getenv("NNUNET_PATH")
     if candidate and candidate != "/path/to/nnUNet":
@@ -57,7 +85,12 @@ def get_trainer_variants_install_dirs(nnunet_path: str | None = None) -> list[Pa
 def trainer_is_available(trainer_name: str) -> bool:
     from nnunetv2.utilities.find_class_by_name import recursive_find_python_class
 
-    trainer_root = get_nnunet_package_root() / "training" / "nnUNetTrainer"
+    try:
+        trainer_root = get_nnunet_package_root() / "training" / "nnUNetTrainer"
+    except RuntimeError:
+        return False
+    if not trainer_root.is_dir():
+        return False
     return (
         recursive_find_python_class(
             folder=str(trainer_root),
@@ -119,13 +152,28 @@ def ensure_trainer_installed(trainer_name: str, nnunet_path: str | None = None) 
         return
 
     print(f"Installing custom trainer variant for: {trainer_name}")
-    install_trainer_variants(nnunet_path)
+    try:
+        install_trainer_variants(nnunet_path)
+    except FileNotFoundError as e:
+        raise RuntimeError(
+            f"Cannot install trainer {trainer_name}: {e}\n"
+            "Diagnose:\n"
+            "  python -c \"import nnunetv2,sys; print(nnunetv2, getattr(nnunetv2,'__file__',None), sys.executable)\"\n"
+            "  ls .venv/bin/nnUNetv2_predict\n"
+            "Install nnUNet into this .venv (not ~/.local), or set NNUNET_PATH to a\n"
+            "source tree containing nnunetv2/, then:\n"
+            "  python -m nnunet_training.install_trainer_variants"
+        ) from e
 
     if not trainer_is_available(trainer_name):
-        package_root = get_nnunet_package_root()
+        try:
+            package_root = get_nnunet_package_root()
+            expected = package_root / _RELATIVE_TRAINER_VARIANTS
+        except RuntimeError:
+            expected = "(nnunetv2 package root unresolved)"
         raise RuntimeError(
             f"Trainer {trainer_name} is still not discoverable after install.\n"
-            f"Expected it under: {package_root / _RELATIVE_TRAINER_VARIANTS}\n"
+            f"Expected it under: {expected}\n"
             "Run manually: python -m nnunet_training.install_trainer_variants"
         )
 
