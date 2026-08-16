@@ -6,12 +6,12 @@ Each ``{case}.slim.npz`` stores float16 probabilities only near the tumor ROI:
 
   - bbox around dilated GT GTVp (fallback: high P(GTVp) / argmax)
   - p_gtvp + selected classes (GT overlap organs, GTVn, top-k by mean P)
-  - deletes the raw ``.npz`` after a successful write (default)
+  - keeps the raw ``.npz`` by default (needed for full-CT visualisation)
 
 Example:
 
   python -m pipelines.test7.slim_probabilities
-  python -m pipelines.test7.slim_probabilities --keep-raw --top-k 8 --margin 12
+  python -m pipelines.test7.slim_probabilities --delete-raw --top-k 8 --margin 12
 """
 
 from __future__ import annotations
@@ -184,7 +184,7 @@ def slim_all(
     margin: int = 8,
     top_k: int = 5,
     pred_threshold: float = 0.3,
-    keep_raw: bool = False,
+    keep_raw: bool = True,
     max_cases: int = 0,
 ) -> dict:
     paths = pin_test7_env(work)
@@ -274,9 +274,10 @@ def main() -> None:
     parser.add_argument("--top-k", type=int, default=12, help="Extra classes by mean P near GTVp (not whole crop)")
     parser.add_argument("--pred-threshold", type=float, default=0.3)
     parser.add_argument(
-        "--keep-raw",
+        "--delete-raw",
         action="store_true",
-        help="Keep original nnUNet .npz after writing slim (default: delete)",
+        help="Delete original nnUNet .npz after writing slim "
+        "(default: keep raw — required for full-CT probability_visualisation)",
     )
     parser.add_argument("--max-cases", type=int, default=0)
     args = parser.parse_args()
@@ -288,7 +289,7 @@ def main() -> None:
         margin=args.margin,
         top_k=args.top_k,
         pred_threshold=args.pred_threshold,
-        keep_raw=args.keep_raw,
+        keep_raw=not args.delete_raw,
         max_cases=args.max_cases,
     )
     print("\nNext:")

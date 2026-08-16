@@ -79,11 +79,11 @@ echo "Ts=$(ls ${TEST7_WORK_ROOT}/Dataset650_TotalSegmentator/imagesTs/*_0000.nii
 
 Hard masks → `predictions/labelsTs_predicted/`  
 
-nnUNet writes large raw `.npz` softmax dumps, then Test7 **immediately
-converts** them to cropped float16 slim archives and **deletes** the raw files
-(default):
+nnUNet writes large raw `.npz` softmax dumps, then Test7 converts them to
+cropped float16 slim archives for curves. **Raw `.npz` are kept by default**
+(needed for full-CT `probability_visualisation`). Use `--delete-raw` only to save disk.
 
-`predictions/labelsTs_probabilities/{case}.slim.npz`
+`predictions/labelsTs_probabilities/{case}.npz` + `{case}.slim.npz`
 
 Each slim file keeps:
 
@@ -103,7 +103,7 @@ Confirm:
 ```bash
 ls ${TEST7_WORK_ROOT}/predictions/labelsTs_predicted/*.nii.gz | wc -l
 ls ${TEST7_WORK_ROOT}/predictions/labelsTs_probabilities/*.slim.npz | wc -l
-# raw .npz should be gone unless --keep-raw
+# raw .npz kept by default (required for full-CT probability_visualisation)
 ls ${TEST7_WORK_ROOT}/predictions/labelsTs_probabilities/*.npz 2>/dev/null | wc -l
 cat ${TEST7_WORK_ROOT}/predictions/labelsTs_probabilities/slim_STATUS.json | head
 ```
@@ -112,7 +112,7 @@ Optional flags:
 
 ```bash
 python -m pipelines.test7.predict_probabilities --slim-margin 12 --slim-top-k 8
-python -m pipelines.test7.slim_probabilities --keep-raw   # debug only
+python -m pipelines.test7.slim_probabilities --delete-raw   # disk save only; breaks full-CT viz
 ```
 
 ---
@@ -146,15 +146,20 @@ Outputs under `${TEST7_WORK_ROOT}/region_tumor_probabilities_vs_dice_curves/`:
 
 ## Step 4 — probability_visualisation
 
-Full CT (not tumor crop). Three panels:
+Full CT (not tumor crop). **Requires raw `{case}.npz`** — slim crops paste
+probs into a bbox and create a sharp rectangular cutoff in the soft panel.
+
+Three panels:
 
 1. Original CT  
 2. CT + **GTVp GT only**  
-3. Soft multi-class overlay — **alpha = P(class)**  
+3. Soft multi-class overlay — **alpha = P(class)**, all classes, full volume  
 
 Colormap = Test6 / `MedicalImageVisualizer` standard (GTVp red, GTVn magenta).
 
 ```bash
+# If raw .npz were already deleted, re-predict first:
+# python -m pipelines.test7.predict_probabilities --skip-slim
 python -m pipelines.test7.probability_visualisation
 # optional: --max-cases 3 --max-slices 12
 ```

@@ -6,7 +6,7 @@ Uses Test5 ``nnUNetTrainer_700epochs_NoMirroring`` weights via
 ``nnUNet_results`` → Test5 retrain. Writes under TEST7_WORK_ROOT/predictions/:
 
   labelsTs_predicted/       hard argmax NIfTI (nnUNet default)
-  labelsTs_probabilities/   slim cropped float16 ``*.slim.npz`` (raw .npz deleted)
+  labelsTs_probabilities/   raw ``*.npz`` + slim ``*.slim.npz`` (raw kept by default)
 
 Important: runs ``nnUNetv2_predict`` via the *current* Python (project .venv),
 never bare PATH ``~/.local/bin/nnUNetv2_predict`` (numpy/blosc2 ABI traps).
@@ -99,9 +99,9 @@ def main() -> None:
         help="Do not convert raw .npz → .slim.npz after predict",
     )
     parser.add_argument(
-        "--keep-raw",
+        "--delete-raw",
         action="store_true",
-        help="Keep raw .npz after slim conversion (default: delete)",
+        help="Delete raw .npz after slim (default: keep — needed for full-CT viz)",
     )
     parser.add_argument("--slim-margin", type=int, default=8)
     parser.add_argument("--slim-dilate", type=int, default=2)
@@ -236,7 +236,7 @@ def main() -> None:
             dilate_iter=args.slim_dilate,
             margin=args.slim_margin,
             top_k=args.slim_top_k,
-            keep_raw=args.keep_raw,
+            keep_raw=not args.delete_raw,
         )
     else:
         print("\nSkipped slim step (--skip-slim). Raw .npz left in place.")

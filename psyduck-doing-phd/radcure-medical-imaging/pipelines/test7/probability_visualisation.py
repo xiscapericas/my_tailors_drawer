@@ -8,11 +8,9 @@ Full-slice layout (no tumor crop zoom):
   2. CT + GTVp ground truth only
   3. CT + soft multi-class overlay (alpha = P(class)) — paints **all** classes
 
-Colormap = same standard as Test6 / ``MedicalImageVisualizer``
-(tab20 + GTVp red + GTVn magenta).
-
-By default prefers raw full-volume ``.npz`` (all classes). Falls back to
-``{case}.slim.npz`` if raw is gone.
+Requires raw full-volume ``.npz`` softmax dumps. Slim crops
+(``*.slim.npz``) paste probs into a bbox and produce the sharp rectangular
+cutoff seen in soft overlays — they are not used for visualisation.
 
 Example:
 
@@ -50,13 +48,10 @@ from pipelines.test7.paths import (
     work_root,
 )
 from pipelines.test7.prob_io import (
-    SlimProbabilities,
     align_probs_to_reference,
     find_raw_npz,
-    find_slim_file,
     list_cases_with_probabilities,
     load_probability_npz,
-    load_slim_npz,
 )
 
 
@@ -141,26 +136,6 @@ def soft_overlay_on_ct(
     return np.clip(rgb, 0.0, 1.0)
 
 
-def slim_probs_to_full(
-    slim: SlimProbabilities,
-) -> Tuple[Dict[int, np.ndarray], np.ndarray]:
-    """Expand slim crop channels into full-volume maps (zeros outside bbox)."""
-    probs_k, idxs = slim.channel_stack_crop()
-    x0, x1, y0, y1, z0, z1 = slim.bbox
-    full_shape = slim.full_shape
-    out: Dict[int, np.ndarray] = {}
-    for c, lab in enumerate(idxs):
-        lab = int(lab)
-        vol = np.zeros(full_shape, dtype=np.float32)
-        vol[x0:x1, y0:y1, z0:z1] = np.asarray(probs_k[c], dtype=np.float32)
-        out[lab] = vol
-    p_gtvp = out.get(
-        int(slim.gtvp_index),
-        np.zeros(full_shape, dtype=np.float32),
-    )
-    return out, p_gtvp
-
-
 def _pick_slices(
     n_slices: int,
     axis: int,
@@ -201,24 +176,17 @@ def _legend_patches(
     return patches
 
 
-def load_probs_for_viz(
-    prob_dir: Path,
-    case_id: str,
-    *,
-    prefer_raw: bool = True,
-) -> Tuple[str, object]:
-    """Prefer raw full softmax when available so every class can be painted."""
+def load_raw_probs_for_viz(prob_dir: Path, case_id: str) -> np.ndarray:
+    """Load full-volume softmax only (slim crops are rejected for viz)."""
     raw_p = find_raw_npz(prob_dir, case_id)
-    slim_p = find_slim_file(prob_dir, case_id)
-    if prefer_raw and raw_p is not None:
-        return "raw", load_probability_npz(raw_p)
-    if slim_p is not None:
-        return "slim", load_slim_npz(slim_p)
-    if raw_p is not None:
-        return "raw", load_probability_npz(raw_p)
-    raise FileNotFoundError(
-        f"No slim or raw probabilities for {case_id} in {prob_dir}"
-    )
+    if raw_p is None:
+        raise FileNotFoundError(
+            f"{case_id}: need raw full-volume .npz in {prob_dir}\n"
+            "  Slim *.slim.npz is tumor-cropped and causes the rectangular cutoff.\n"
+            "  Re-run: python -m pipelines.test7.predict_probabilities --skip-slim\n"
+            "  (or predict without --delete-raw so .npz are kept)"
+        )
+    return load_probability_npz(raw_p)
 
 
 def visualize_case(
@@ -349,11 +317,6 @@ def main() -> None:
     )
     parser.add_argument("--alpha-scale", type=float, default=0.75)
     parser.add_argument(
-        "--prefer-slim",
-        action="store_true",
-        help="Use slim.npz even when raw .npz exists (default: prefer raw)",
-    )
-    parser.add_argument(
         "--legend-min-prob",
         type=float,
         default=0.05,
@@ -377,17 +340,32 @@ def main() -> None:
     cases = list_cases_with_probabilities(prob_dir)
     if not cases:
         raise FileNotFoundError(
-            f"No .slim.npz / .npz probabilities in {prob_dir}\n"
-            "Run: python -m pipelines.test7.predict_probabilities"
+            f"No probability dumps in {prob_dir}\n"
+            "Run: python -m pipelines.test7.predict_probabilities --skip-slim"
         )
     if args.max_cases > 0:
         cases = cases[: args.max_cases]
 
-    prefer_raw = not args.prefer_slim
+    # Only cases that still have raw full-volume .npz
+    raw_cases = [c for c in cases if find_raw_npz(prob_dir, c) is not None]
+    if not raw_cases:
+        raise FileNotFoundError(
+            f"No raw full-volume .npz in {prob_dir}\n"
+            "Viz refuses slim crops (they cause the rectangular soft cutoff).\n"
+            "Re-predict and keep raw dumps:\n"
+            "  python -m pipelines.test7.predict_probabilities --skip-slim\n"
+            "  # or without --delete-raw (raw kept by default now)"
+        )
+    if len(raw_cases) < len(cases):
+        print(
+            f"  NOTE: {len(cases) - len(raw_cases)} case(s) have slim only "
+            f"— skipped (need raw .npz)"
+        )
+    cases = raw_cases
+
     print("=" * 70)
-    print("Test7 — probability_visualisation (paint ALL classes)")
+    print("Test7 — probability_visualisation (full-volume raw .npz only)")
     print(f"  cases:      {len(cases)}")
-    print(f"  prefer:     {'raw .npz' if prefer_raw else 'slim.npz'}")
     print(f"  probs:      {prob_dir}")
     print(f"  output:     {out_dir}")
     print("=" * 70)
@@ -401,49 +379,25 @@ def main() -> None:
             print(f"  skip {case_id}: missing image")
             failed.append(case_id)
             continue
-        try:
-            kind, payload = load_probs_for_viz(
-                prob_dir, case_id, prefer_raw=prefer_raw
-            )
-        except FileNotFoundError:
-            print(f"  skip {case_id}: missing probabilities")
-            failed.append(case_id)
-            continue
 
         out_pdf = out_dir / f"{case_id}_probability.pdf"
         try:
+            probs = load_raw_probs_for_viz(prob_dir, case_id)
             img = _load_nifti(image_path)
             gt = _load_nifti(gt_path) if gt_path.is_file() else None
             gtvp_idx = int(organ_dict["GTVp"])
 
-            if kind == "slim":
-                slim: SlimProbabilities = payload  # type: ignore[assignment]
-                if slim.full_shape != tuple(int(x) for x in img.shape):
-                    print(
-                        f"  NOTE {case_id}: slim full_shape {slim.full_shape} "
-                        f"!= CT {img.shape} — still pasting by bbox"
-                    )
-                print(
-                    f"  WARN {case_id}: using slim "
-                    f"({len(slim.class_indices)} channels) — "
-                    "re-predict with --keep-raw for all classes"
-                )
-                probs_by_label, p_gtvp = slim_probs_to_full(slim)
-            else:
-                probs = np.asarray(payload, dtype=np.float32)
-                if gt is not None and probs.shape[1:] != gt.shape:
-                    probs, _ = align_probs_to_reference(probs, gt.shape)
-                elif probs.shape[1:] != img.shape:
-                    probs, _ = align_probs_to_reference(probs, img.shape)
-                # Every class channel including background skipped at paint time
-                probs_by_label = {
-                    c: probs[c] for c in range(probs.shape[0])
-                }
-                p_gtvp = probs[gtvp_idx]
-                print(
-                    f"  {case_id}: raw softmax C={probs.shape[0]} "
-                    f"spatial={probs.shape[1:]}"
-                )
+            if gt is not None and probs.shape[1:] != gt.shape:
+                probs, _ = align_probs_to_reference(probs, gt.shape)
+            elif probs.shape[1:] != img.shape:
+                probs, _ = align_probs_to_reference(probs, img.shape)
+
+            probs_by_label = {c: probs[c] for c in range(probs.shape[0])}
+            p_gtvp = probs[gtvp_idx]
+            print(
+                f"  {case_id}: raw softmax C={probs.shape[0]} "
+                f"spatial={probs.shape[1:]}"
+            )
 
             visualize_case(
                 case_id=case_id,
@@ -458,7 +412,7 @@ def main() -> None:
                 alpha_scale=args.alpha_scale,
                 legend_min_prob=args.legend_min_prob,
             )
-            print(f"  wrote {out_pdf.name} [{kind}]")
+            print(f"  wrote {out_pdf.name} [raw]")
             done.append(case_id)
         except Exception as e:
             print(f"  fail {case_id}: {e}")
@@ -468,11 +422,12 @@ def main() -> None:
         "done": done,
         "failed": failed,
         "n_done": len(done),
-        "prefer_raw": prefer_raw,
+        "source": "raw_npz_full_volume",
         "paint": "all_classes",
         "colormap": "MedicalImageVisualizer / Test6 (tab20, GTVp=red, GTVn=magenta)",
         "layout": ["CT", "CT+GTVp GT", "soft alpha=P(class) all classes"],
         "full_ct": True,
+        "no_slim_crop": True,
     }
     with open(out_dir / "STATUS.json", "w") as f:
         json.dump(meta, f, indent=2)
