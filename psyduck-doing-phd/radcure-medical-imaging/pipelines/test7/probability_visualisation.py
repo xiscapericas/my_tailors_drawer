@@ -6,13 +6,13 @@ Full-slice layout (no tumor crop zoom):
 
   1. Original CT
   2. CT + GTVp ground truth only
-  3. CT + soft multi-class overlay (alpha = P(class))
+  3. CT + soft multi-class overlay (alpha = P(class)) — paints **all** classes
 
 Colormap = same standard as Test6 / ``MedicalImageVisualizer``
 (tab20 + GTVp red + GTVn magenta).
 
-Prefers ``{case}.slim.npz`` (pasted into full volume at bbox); falls back to
-raw full-volume ``.npz``.
+By default prefers raw full-volume ``.npz`` (all classes). Falls back to
+``{case}.slim.npz`` if raw is gone.
 
 Example:
 
@@ -52,29 +52,11 @@ from pipelines.test7.paths import (
 from pipelines.test7.prob_io import (
     SlimProbabilities,
     align_probs_to_reference,
+    find_raw_npz,
+    find_slim_file,
     list_cases_with_probabilities,
-    load_case_probabilities,
     load_probability_npz,
-)
-
-# Classes that drown soft overlays if painted at full strength
-_SOFT_EXCLUDE = frozenset(
-    {
-        "background",
-        "anatomical_region",
-        "other-tissue",
-    }
-)
-
-# Large FOV / bone fillers: still drawable, but lower alpha so local organs + GTVp show
-_BULK_ALPHA_SCALE = frozenset(
-    {
-        "head",
-        "skull",
-        "mandible",
-        "teeth_upper",
-        "teeth_lower",
-    }
+    load_slim_npz,
 )
 
 
@@ -128,46 +110,29 @@ def soft_overlay_on_ct(
     probs_by_class: Dict[int, np.ndarray],
     colors: np.ndarray,
     *,
-    organ_dict: Dict[str, int],
-    alpha_scale: float = 0.65,
-    min_prob: float = 0.08,
+    alpha_scale: float = 0.75,
     gtvp_index: Optional[int] = None,
     gtvn_index: Optional[int] = None,
 ) -> np.ndarray:
     """
-    Alpha-composite class colours over CT.
+    Alpha-composite **every** class over CT (no class exclude, no min-P gate).
 
-    Paint order: non-tumor classes by ascending *max* P (localized first),
-    then GTVn, then GTVp last so tumour is never buried under head/skull.
-    Bulk anatomy (head/skull/mandible) uses a reduced alpha scale.
+    Paint order: ascending max P, then GTVn, then GTVp last.
     """
     rgb = _ct_to_rgb(ct_slice)
-    name_by_idx = {int(v): k for k, v in organ_dict.items() if isinstance(v, int)}
-    tumor_last = {
-        i for i in (gtvp_index, gtvn_index) if i is not None
-    }
+    tumor_last = {i for i in (gtvp_index, gtvn_index) if i is not None}
 
     def _sort_key(cls: int) -> Tuple[int, float]:
-        # tumor classes last
         if cls in tumor_last:
             return (2 if cls == gtvp_index else 1, 0.0)
         p = np.asarray(probs_by_class[cls], dtype=np.float32)
-        return (0, float(p.max()))
+        return (0, float(np.nanmax(p)) if p.size else 0.0)
 
-    order = sorted(probs_by_class.keys(), key=_sort_key)
-
-    for cls in order:
+    for cls in sorted(probs_by_class.keys(), key=_sort_key):
         if cls <= 0 or cls >= len(colors):
             continue
         p = np.asarray(probs_by_class[cls], dtype=np.float32)
-        if float(p.max()) < min_prob:
-            continue
-        scale = alpha_scale
-        name = name_by_idx.get(cls, "")
-        if name in _BULK_ALPHA_SCALE:
-            scale = alpha_scale * 0.35
-        a = np.clip(p * scale, 0.0, 1.0)
-        a = np.where(p >= min_prob, a, 0.0)
+        a = np.clip(p * alpha_scale, 0.0, 1.0)
         if not np.any(a > 0):
             continue
         col = colors[cls, :3].astype(np.float32)
@@ -179,11 +144,7 @@ def soft_overlay_on_ct(
 def slim_probs_to_full(
     slim: SlimProbabilities,
 ) -> Tuple[Dict[int, np.ndarray], np.ndarray]:
-    """
-    Expand slim crop channels into full-volume maps (zeros outside bbox).
-
-    Returns ``(probs_by_label, p_gtvp_full)``.
-    """
+    """Expand slim crop channels into full-volume maps (zeros outside bbox)."""
     probs_k, idxs = slim.channel_stack_crop()
     x0, x1, y0, y1, z0, z1 = slim.bbox
     full_shape = slim.full_shape
@@ -240,6 +201,26 @@ def _legend_patches(
     return patches
 
 
+def load_probs_for_viz(
+    prob_dir: Path,
+    case_id: str,
+    *,
+    prefer_raw: bool = True,
+) -> Tuple[str, object]:
+    """Prefer raw full softmax when available so every class can be painted."""
+    raw_p = find_raw_npz(prob_dir, case_id)
+    slim_p = find_slim_file(prob_dir, case_id)
+    if prefer_raw and raw_p is not None:
+        return "raw", load_probability_npz(raw_p)
+    if slim_p is not None:
+        return "slim", load_slim_npz(slim_p)
+    if raw_p is not None:
+        return "raw", load_probability_npz(raw_p)
+    raise FileNotFoundError(
+        f"No slim or raw probabilities for {case_id} in {prob_dir}"
+    )
+
+
 def visualize_case(
     case_id: str,
     img: np.ndarray,
@@ -251,8 +232,9 @@ def visualize_case(
     *,
     axis: int = 2,
     max_slices: int = 16,
-    alpha_scale: float = 0.65,
-    min_prob: float = 0.08,
+    alpha_scale: float = 0.75,
+    legend_min_prob: float = 0.05,
+    legend_max: int = 40,
 ) -> None:
     import matplotlib.pyplot as plt
     from matplotlib.backends.backend_pdf import PdfPages
@@ -261,28 +243,18 @@ def visualize_case(
     index_to_organ = {int(v): k for k, v in organ_dict.items() if isinstance(v, int)}
     gtvp_idx = int(organ_dict["GTVp"])
     gtvn_idx = int(organ_dict["GTVn"]) if "GTVn" in organ_dict else None
-    exclude_idx = {
-        int(organ_dict[n]) for n in _SOFT_EXCLUDE if n in organ_dict
-    }
 
-    stored_names = [
-        f"{index_to_organ.get(lab, lab)}({lab})"
-        for lab in sorted(probs_by_label)
-        if lab > 0
-    ]
-    print(f"  {case_id}: soft channels stored = {', '.join(stored_names)}")
+    # Paint every stored channel except background (index 0)
+    soft_labels = sorted(lab for lab in probs_by_label if lab > 0)
+    print(
+        f"  {case_id}: painting {len(soft_labels)} classes "
+        f"(max index {max(soft_labels) if soft_labels else 0})"
+    )
 
     gtvp_gt = (gt == gtvp_idx).astype(np.uint8) if gt is not None else None
     n_slices = img.shape[axis]
     slices_to_show = _pick_slices(
         n_slices, axis, max_slices, gtvp_gt, p_gtvp_full
-    )
-
-    # Soft channels: all stored labels except background / bulk tissue classes
-    soft_labels = sorted(
-        lab
-        for lab in probs_by_label
-        if lab > 0 and lab not in exclude_idx
     )
 
     out_pdf.parent.mkdir(parents=True, exist_ok=True)
@@ -293,12 +265,10 @@ def visualize_case(
             fig, axes = plt.subplots(1, 3, figsize=(15, 5))
             ax_ct, ax_gt, ax_soft = axes
 
-            # 1) Original CT
             ax_ct.imshow(img_sl, cmap="gray")
             ax_ct.set_title(f"CT\n(slice {slice_idx})")
             ax_ct.axis("off")
 
-            # 2) CT + GTVp GT only
             ax_gt.imshow(img_sl, cmap="gray")
             if gtvp_gt is not None:
                 gtvp_sl = _get_slice(gtvp_gt, slice_idx, axis).astype(bool)
@@ -310,42 +280,40 @@ def visualize_case(
             ax_gt.set_title("CT + GTVp (GT)")
             ax_gt.axis("off")
 
-            # 3) Soft multi-class (alpha = P)
-            probs_sl: Dict[int, np.ndarray] = {}
-            for lab in soft_labels:
-                psl = _get_slice(probs_by_label[lab], slice_idx, axis)
-                if float(psl.max()) >= min_prob:
-                    probs_sl[lab] = psl
-            # Always include tumour channels when stored
-            for need in (gtvp_idx, gtvn_idx):
-                if need is not None and need in probs_by_label:
-                    probs_sl[need] = _get_slice(probs_by_label[need], slice_idx, axis)
+            # All classes on this slice — no filtering
+            probs_sl: Dict[int, np.ndarray] = {
+                lab: _get_slice(probs_by_label[lab], slice_idx, axis)
+                for lab in soft_labels
+            }
 
             soft_rgb = soft_overlay_on_ct(
                 img_sl,
                 probs_sl,
                 colors,
-                organ_dict=organ_dict,
                 alpha_scale=alpha_scale,
-                min_prob=min_prob,
                 gtvp_index=gtvp_idx,
                 gtvn_index=gtvn_idx,
             )
             ax_soft.imshow(soft_rgb)
-            ax_soft.set_title("Soft prediction\n(alpha = P(class))")
+            ax_soft.set_title("Soft prediction\n(all classes, alpha=P)")
             ax_soft.axis("off")
 
-            # Legend: every class painted / above threshold; GTVp first
-            present = []
+            # Legend: classes with any mass on this slice (capped)
+            scored = []
             for lab, psl in probs_sl.items():
-                if lab in (gtvp_idx, gtvn_idx) or float(psl.max()) >= min_prob:
-                    present.append(lab)
-            present = sorted(set(present))
-            ordered = []
+                mx = float(np.nanmax(psl)) if psl.size else 0.0
+                if mx >= legend_min_prob:
+                    scored.append((mx, lab))
+            scored.sort(reverse=True)
+            ordered: List[int] = []
             for need in (gtvp_idx, gtvn_idx):
-                if need is not None and need in present:
+                if need is not None and need in probs_sl:
                     ordered.append(need)
-            ordered.extend(x for x in present if x not in ordered)
+            for _, lab in scored:
+                if lab not in ordered:
+                    ordered.append(lab)
+                if len(ordered) >= legend_max:
+                    break
 
             patches = _legend_patches(ordered, colors, index_to_organ)
             if patches:
@@ -353,12 +321,12 @@ def visualize_case(
                     handles=patches,
                     loc="center left",
                     bbox_to_anchor=(1.01, 0.5),
-                    fontsize=7,
-                    title="organs (index)",
+                    fontsize=6,
+                    title=f"organs (top {len(patches)})",
                 )
 
             fig.suptitle(
-                f"{case_id} — probability visualisation (full CT)",
+                f"{case_id} — probability visualisation (full CT, all classes)",
                 y=1.02,
             )
             fig.tight_layout()
@@ -368,7 +336,7 @@ def visualize_case(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Test7: full-CT probability visualisation (Test6 colormap)"
+        description="Test7: full-CT probability visualisation (paint all classes)"
     )
     parser.add_argument("--work-root", default=str(work_root()))
     parser.add_argument("--axis", type=int, default=2, help="0=sag, 1=cor, 2=ax")
@@ -379,12 +347,17 @@ def main() -> None:
         default=16,
         help="Max slices per case (0 = all; prefers GTVp / high-P slices)",
     )
-    parser.add_argument("--alpha-scale", type=float, default=0.65)
+    parser.add_argument("--alpha-scale", type=float, default=0.75)
     parser.add_argument(
-        "--min-prob",
+        "--prefer-slim",
+        action="store_true",
+        help="Use slim.npz even when raw .npz exists (default: prefer raw)",
+    )
+    parser.add_argument(
+        "--legend-min-prob",
         type=float,
-        default=0.08,
-        help="Min P(class) to paint / list in legend",
+        default=0.05,
+        help="Min max-P on slice to appear in legend (painting is unfiltered)",
     )
     args = parser.parse_args()
 
@@ -410,11 +383,13 @@ def main() -> None:
     if args.max_cases > 0:
         cases = cases[: args.max_cases]
 
+    prefer_raw = not args.prefer_slim
     print("=" * 70)
-    print("Test7 — probability_visualisation (full CT, Test6 colormap)")
-    print(f"  cases:  {len(cases)}")
-    print(f"  probs:  {prob_dir}")
-    print(f"  output: {out_dir}")
+    print("Test7 — probability_visualisation (paint ALL classes)")
+    print(f"  cases:      {len(cases)}")
+    print(f"  prefer:     {'raw .npz' if prefer_raw else 'slim.npz'}")
+    print(f"  probs:      {prob_dir}")
+    print(f"  output:     {out_dir}")
     print("=" * 70)
 
     done = []
@@ -427,7 +402,9 @@ def main() -> None:
             failed.append(case_id)
             continue
         try:
-            kind, payload = load_case_probabilities(prob_dir, case_id)
+            kind, payload = load_probs_for_viz(
+                prob_dir, case_id, prefer_raw=prefer_raw
+            )
         except FileNotFoundError:
             print(f"  skip {case_id}: missing probabilities")
             failed.append(case_id)
@@ -437,15 +414,20 @@ def main() -> None:
         try:
             img = _load_nifti(image_path)
             gt = _load_nifti(gt_path) if gt_path.is_file() else None
+            gtvp_idx = int(organ_dict["GTVp"])
 
             if kind == "slim":
                 slim: SlimProbabilities = payload  # type: ignore[assignment]
-                # Ensure bbox geometry matches CT
                 if slim.full_shape != tuple(int(x) for x in img.shape):
                     print(
                         f"  NOTE {case_id}: slim full_shape {slim.full_shape} "
                         f"!= CT {img.shape} — still pasting by bbox"
                     )
+                print(
+                    f"  WARN {case_id}: using slim "
+                    f"({len(slim.class_indices)} channels) — "
+                    "re-predict with --keep-raw for all classes"
+                )
                 probs_by_label, p_gtvp = slim_probs_to_full(slim)
             else:
                 probs = np.asarray(payload, dtype=np.float32)
@@ -453,11 +435,15 @@ def main() -> None:
                     probs, _ = align_probs_to_reference(probs, gt.shape)
                 elif probs.shape[1:] != img.shape:
                     probs, _ = align_probs_to_reference(probs, img.shape)
-                gtvp_idx = int(organ_dict["GTVp"])
+                # Every class channel including background skipped at paint time
                 probs_by_label = {
-                    c: probs[c] for c in range(1, probs.shape[0])
+                    c: probs[c] for c in range(probs.shape[0])
                 }
                 p_gtvp = probs[gtvp_idx]
+                print(
+                    f"  {case_id}: raw softmax C={probs.shape[0]} "
+                    f"spatial={probs.shape[1:]}"
+                )
 
             visualize_case(
                 case_id=case_id,
@@ -470,7 +456,7 @@ def main() -> None:
                 axis=args.axis,
                 max_slices=args.max_slices,
                 alpha_scale=args.alpha_scale,
-                min_prob=args.min_prob,
+                legend_min_prob=args.legend_min_prob,
             )
             print(f"  wrote {out_pdf.name} [{kind}]")
             done.append(case_id)
@@ -482,8 +468,10 @@ def main() -> None:
         "done": done,
         "failed": failed,
         "n_done": len(done),
+        "prefer_raw": prefer_raw,
+        "paint": "all_classes",
         "colormap": "MedicalImageVisualizer / Test6 (tab20, GTVp=red, GTVn=magenta)",
-        "layout": ["CT", "CT+GTVp GT", "soft alpha=P(class)"],
+        "layout": ["CT", "CT+GTVp GT", "soft alpha=P(class) all classes"],
         "full_ct": True,
     }
     with open(out_dir / "STATUS.json", "w") as f:
