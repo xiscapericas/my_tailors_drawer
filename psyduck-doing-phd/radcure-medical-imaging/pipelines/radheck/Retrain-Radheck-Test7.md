@@ -146,7 +146,13 @@ Outputs under `${TEST7_WORK_ROOT}/region_tumor_probabilities_vs_dice_curves/`:
 
 ## Step 4 — probability_visualisation
 
-Same organ colours as hard-label viz; **alpha = P(class)** per voxel.
+Full CT (not tumor crop). Three panels:
+
+1. Original CT  
+2. CT + **GTVp GT only**  
+3. Soft multi-class overlay — **alpha = P(class)**  
+
+Colormap = Test6 / `MedicalImageVisualizer` standard (GTVp red, GTVn magenta).
 
 ```bash
 python -m pipelines.test7.probability_visualisation
