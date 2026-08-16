@@ -43,6 +43,7 @@ from pipelines.test7.paths import (
 )
 from pipelines.test7.prob_io import (
     SLIM_SUFFIX,
+    align_probs_to_reference,
     bbox_from_mask,
     build_slim_from_full,
     find_raw_npz,
@@ -83,6 +84,7 @@ def convert_case(
     margin: int,
     top_k: int,
     pred_threshold: float,
+    image_path: Path | None = None,
 ) -> dict:
     probs = load_probability_npz(raw_path)
     gtvp_index = int(organ_dict["GTVp"])
@@ -94,10 +96,31 @@ def convert_case(
     gt = None
     if gt_path is not None and gt_path.is_file():
         gt = _load_nifti_mask(gt_path)
-        if gt.shape != probs.shape[1:]:
-            raise ValueError(
-                f"{case_id}: GT shape {gt.shape} != probs spatial {probs.shape[1:]}"
+
+    # Align nnUNet .npz spatial axes to GT (or CT) nibabel order
+    ref_shape = None
+    if gt is not None:
+        ref_shape = gt.shape
+    elif image_path is not None and image_path.is_file():
+        ref_shape = _load_nifti_mask(image_path).shape
+
+    spatial_transpose = None
+    if ref_shape is not None:
+        try:
+            probs, spatial_transpose = align_probs_to_reference(probs, ref_shape)
+        except ValueError as e:
+            raise ValueError(f"{case_id}: {e}") from e
+        if spatial_transpose is not None:
+            print(
+                f"  {case_id}: transposed probs spatial {spatial_transpose} "
+                f"→ {probs.shape[1:]} (match GT/CT)"
             )
+
+    if gt is not None and gt.shape != probs.shape[1:]:
+        raise ValueError(
+            f"{case_id}: GT shape {gt.shape} != probs spatial {probs.shape[1:]} "
+            "after align"
+        )
 
     roi = tumor_roi_mask(
         gt,
@@ -129,6 +152,10 @@ def convert_case(
         dilate_iter=np.int16(dilate_iter),
         margin=np.int16(margin),
         top_k=np.int16(top_k),
+        spatial_transpose=np.asarray(
+            spatial_transpose if spatial_transpose is not None else (-1, -1, -1),
+            dtype=np.int16,
+        ),
         roi_source=np.asarray(
             "gt_gtvp" if gt is not None and np.any(gt == gtvp_index) else "pred"
         ),
@@ -139,6 +166,9 @@ def convert_case(
         "bbox": list(bbox),
         "crop_shape": list(slim.crop_shape),
         "full_shape": list(slim.full_shape),
+        "spatial_transpose": list(spatial_transpose)
+        if spatial_transpose is not None
+        else None,
         "n_classes_kept": int(len(class_indices)),
         "class_indices": [int(i) for i in class_indices],
         "raw_bytes": raw_bytes,
@@ -160,6 +190,8 @@ def slim_all(
     paths = pin_test7_env(work)
     dataset = paths["dataset"]
     labels_ts = dataset / "labelsTs"
+    images_ts = dataset / "imagesTs"
+    hard_dir = Path(work) / "predictions" / "labelsTs_predicted"
     prob_dir = probabilities_dir(work)
     prob_dir.mkdir(parents=True, exist_ok=True)
     organ_dict = load_organ_dict(paths.get("organ"))
@@ -184,6 +216,11 @@ def slim_all(
             continue
         out = slim_path_for_case(prob_dir, case_id)
         gt_path = labels_ts / f"{case_id}.nii.gz"
+        image_path = images_ts / f"{case_id}_0000.nii.gz"
+        if not image_path.is_file():
+            # fallback: hard prediction geometry (same as CT after nnUNet export)
+            alt = hard_dir / f"{case_id}.nii.gz"
+            image_path = alt if alt.is_file() else image_path
         try:
             info = convert_case(
                 case_id,
@@ -195,6 +232,7 @@ def slim_all(
                 margin=margin,
                 top_k=top_k,
                 pred_threshold=pred_threshold,
+                image_path=image_path if image_path.is_file() else None,
             )
             results.append(info)
             print(

@@ -80,9 +80,13 @@ class SlimProbabilities:
 
 def load_probability_npz(path: Path) -> np.ndarray:
     """
-    Load softmax probabilities from nnUNetv2 ``-save_probabilities`` output.
+    Load softmax probabilities from nnUNetv2 ``--save_probabilities`` output.
 
     Expected shape: ``(C, X, Y, Z)`` float32 in [0, 1].
+
+    Note: spatial axis order may still be nnUNet's internal order (often a
+    transpose of the on-disk NIfTI). Use ``align_probs_to_reference`` before
+    comparing with GT / CT loaded via nibabel.
     """
     path = Path(path)
     if not path.is_file():
@@ -109,6 +113,48 @@ def load_probability_npz(path: Path) -> np.ndarray:
             f"Expected probabilities shape (C,X,Y,Z), got {probs.shape} in {path}"
         )
     return probs.astype(np.float32, copy=False)
+
+
+def align_probs_to_reference(
+    probs: np.ndarray,
+    reference_shape: Sequence[int],
+) -> Tuple[np.ndarray, Optional[Tuple[int, int, int]]]:
+    """
+    Transpose spatial axes of ``probs`` ``(C, …)`` so they match ``reference_shape``.
+
+    nnUNet ``.npz`` dumps often keep the network/export axis order (e.g.
+    ``(Z, X, Y)``) while nibabel GT/CT are ``(X, Y, Z)``.
+
+    Returns
+    -------
+    probs_aligned : np.ndarray
+        Shape ``(C, *reference_shape)``.
+    spatial_transpose : tuple[int,int,int] | None
+        Permutation applied to the three spatial axes, or None if already matched.
+    """
+    if probs.ndim != 4:
+        raise ValueError(f"Expected probs (C,X,Y,Z), got {probs.shape}")
+    ref = tuple(int(x) for x in reference_shape)
+    if len(ref) != 3:
+        raise ValueError(f"reference_shape must be length 3, got {ref}")
+
+    spatial = tuple(int(x) for x in probs.shape[1:])
+    if spatial == ref:
+        return probs, None
+
+    from itertools import permutations
+
+    for perm in permutations((0, 1, 2)):
+        trial = (spatial[perm[0]], spatial[perm[1]], spatial[perm[2]])
+        if trial == ref:
+            # probs axes: 0=C, 1..3=spatial → new order (0, 1+perm0, 1+perm1, 1+perm2)
+            axes = (0, 1 + perm[0], 1 + perm[1], 1 + perm[2])
+            return np.transpose(probs, axes), perm
+
+    raise ValueError(
+        f"Cannot align probs spatial {spatial} to reference {ref} "
+        "(not a permutation of the same sizes)"
+    )
 
 
 def slim_path_for_case(prob_dir: Path, case_id: str) -> Path:
