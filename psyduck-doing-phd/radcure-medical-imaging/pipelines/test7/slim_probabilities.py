@@ -271,7 +271,7 @@ def main() -> None:
     parser.add_argument("--work-root", default=str(work_root()))
     parser.add_argument("--dilate", type=int, default=2)
     parser.add_argument("--margin", type=int, default=8, help="Voxels pad around ROI bbox")
-    parser.add_argument("--top-k", type=int, default=5, help="Extra classes by mean P in crop")
+    parser.add_argument("--top-k", type=int, default=12, help="Extra classes by mean P near GTVp (not whole crop)")
     parser.add_argument("--pred-threshold", type=float, default=0.3)
     parser.add_argument(
         "--keep-raw",

@@ -66,6 +66,17 @@ _SOFT_EXCLUDE = frozenset(
     }
 )
 
+# Large FOV / bone fillers: still drawable, but lower alpha so local organs + GTVp show
+_BULK_ALPHA_SCALE = frozenset(
+    {
+        "head",
+        "skull",
+        "mandible",
+        "teeth_upper",
+        "teeth_lower",
+    }
+)
+
 
 def standard_label_colors(organ_dict: Dict[str, int]) -> np.ndarray:
     """
@@ -117,28 +128,45 @@ def soft_overlay_on_ct(
     probs_by_class: Dict[int, np.ndarray],
     colors: np.ndarray,
     *,
+    organ_dict: Dict[str, int],
     alpha_scale: float = 0.65,
-    min_prob: float = 0.12,
+    min_prob: float = 0.08,
+    gtvp_index: Optional[int] = None,
+    gtvn_index: Optional[int] = None,
 ) -> np.ndarray:
     """
     Alpha-composite class colours over CT.
 
-    Low-probability classes first, high last (so confident labels sit on top).
-    ``alpha = P(class) * alpha_scale`` — CT remains visible where P is low.
+    Paint order: non-tumor classes by ascending *max* P (localized first),
+    then GTVn, then GTVp last so tumour is never buried under head/skull.
+    Bulk anatomy (head/skull/mandible) uses a reduced alpha scale.
     """
     rgb = _ct_to_rgb(ct_slice)
-    # Paint low mean-P first so high-P (e.g. GTVp) wins conflicts
-    order = sorted(
-        probs_by_class.keys(),
-        key=lambda c: float(np.asarray(probs_by_class[c]).mean()),
-    )
+    name_by_idx = {int(v): k for k, v in organ_dict.items() if isinstance(v, int)}
+    tumor_last = {
+        i for i in (gtvp_index, gtvn_index) if i is not None
+    }
+
+    def _sort_key(cls: int) -> Tuple[int, float]:
+        # tumor classes last
+        if cls in tumor_last:
+            return (2 if cls == gtvp_index else 1, 0.0)
+        p = np.asarray(probs_by_class[cls], dtype=np.float32)
+        return (0, float(p.max()))
+
+    order = sorted(probs_by_class.keys(), key=_sort_key)
+
     for cls in order:
         if cls <= 0 or cls >= len(colors):
             continue
         p = np.asarray(probs_by_class[cls], dtype=np.float32)
         if float(p.max()) < min_prob:
             continue
-        a = np.clip(p * alpha_scale, 0.0, 1.0)
+        scale = alpha_scale
+        name = name_by_idx.get(cls, "")
+        if name in _BULK_ALPHA_SCALE:
+            scale = alpha_scale * 0.35
+        a = np.clip(p * scale, 0.0, 1.0)
         a = np.where(p >= min_prob, a, 0.0)
         if not np.any(a > 0):
             continue
@@ -224,7 +252,7 @@ def visualize_case(
     axis: int = 2,
     max_slices: int = 16,
     alpha_scale: float = 0.65,
-    min_prob: float = 0.12,
+    min_prob: float = 0.08,
 ) -> None:
     import matplotlib.pyplot as plt
     from matplotlib.backends.backend_pdf import PdfPages
@@ -232,9 +260,17 @@ def visualize_case(
     colors = standard_label_colors(organ_dict)
     index_to_organ = {int(v): k for k, v in organ_dict.items() if isinstance(v, int)}
     gtvp_idx = int(organ_dict["GTVp"])
+    gtvn_idx = int(organ_dict["GTVn"]) if "GTVn" in organ_dict else None
     exclude_idx = {
         int(organ_dict[n]) for n in _SOFT_EXCLUDE if n in organ_dict
     }
+
+    stored_names = [
+        f"{index_to_organ.get(lab, lab)}({lab})"
+        for lab in sorted(probs_by_label)
+        if lab > 0
+    ]
+    print(f"  {case_id}: soft channels stored = {', '.join(stored_names)}")
 
     gtvp_gt = (gt == gtvp_idx).astype(np.uint8) if gt is not None else None
     n_slices = img.shape[axis]
@@ -280,34 +316,38 @@ def visualize_case(
                 psl = _get_slice(probs_by_label[lab], slice_idx, axis)
                 if float(psl.max()) >= min_prob:
                     probs_sl[lab] = psl
-            # Always include GTVp channel if present
-            if gtvp_idx in probs_by_label:
-                probs_sl[gtvp_idx] = _get_slice(
-                    probs_by_label[gtvp_idx], slice_idx, axis
-                )
+            # Always include tumour channels when stored
+            for need in (gtvp_idx, gtvn_idx):
+                if need is not None and need in probs_by_label:
+                    probs_sl[need] = _get_slice(probs_by_label[need], slice_idx, axis)
 
             soft_rgb = soft_overlay_on_ct(
                 img_sl,
                 probs_sl,
                 colors,
+                organ_dict=organ_dict,
                 alpha_scale=alpha_scale,
                 min_prob=min_prob,
+                gtvp_index=gtvp_idx,
+                gtvn_index=gtvn_idx,
             )
             ax_soft.imshow(soft_rgb)
             ax_soft.set_title("Soft prediction\n(alpha = P(class))")
             ax_soft.axis("off")
 
-            # Legend: every class with max P >= min_prob on this slice (+ GTVp)
+            # Legend: every class painted / above threshold; GTVp first
             present = []
             for lab, psl in probs_sl.items():
-                if lab == gtvp_idx or float(psl.max()) >= min_prob:
+                if lab in (gtvp_idx, gtvn_idx) or float(psl.max()) >= min_prob:
                     present.append(lab)
             present = sorted(set(present))
-            # Put GTVp first in the legend
-            if gtvp_idx in present:
-                present = [gtvp_idx] + [x for x in present if x != gtvp_idx]
+            ordered = []
+            for need in (gtvp_idx, gtvn_idx):
+                if need is not None and need in present:
+                    ordered.append(need)
+            ordered.extend(x for x in present if x not in ordered)
 
-            patches = _legend_patches(present, colors, index_to_organ)
+            patches = _legend_patches(ordered, colors, index_to_organ)
             if patches:
                 fig.legend(
                     handles=patches,
@@ -343,7 +383,7 @@ def main() -> None:
     parser.add_argument(
         "--min-prob",
         type=float,
-        default=0.12,
+        default=0.08,
         help="Min P(class) to paint / list in legend",
     )
     args = parser.parse_args()

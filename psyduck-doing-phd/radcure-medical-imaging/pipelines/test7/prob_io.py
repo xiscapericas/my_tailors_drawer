@@ -344,19 +344,34 @@ def select_class_indices(
     gtvp_index: int,
     organ_dict: Dict[str, int],
     always_include: Iterable[str] = ("GTVn",),
-    top_k: int = 5,
+    top_k: int = 12,
     exclude_names: Optional[Iterable[str]] = None,
 ) -> List[int]:
     """
     Classes to keep in the slim dump (always includes GTVp).
 
-    - labels present in GT crop (except excluded background-like)
-    - ``always_include`` names if in dict
-    - top_k by mean probability in crop (excluding already selected)
+    Priority:
+    1. GTVp (+ always_include, e.g. GTVn)
+    2. Labels present in the GT crop (competing organs)
+    3. top_k by mean probability **inside the GTVp-support ROI**
+       (not the whole crop — whole-crop mean prefers head/skull/mandible)
     """
     from pipelines.test7.paths import competing_region_names
 
-    exclude = set(exclude_names or ("background", "anatomical_region", "other-tissue"))
+    exclude = set(
+        exclude_names
+        or (
+            "background",
+            "anatomical_region",
+            "other-tissue",
+            # Large FOV fillers — still available if present in GT crop
+            "head",
+            "skull",
+            "mandible",
+            "teeth_upper",
+            "teeth_lower",
+        )
+    )
     selected: List[int] = [int(gtvp_index)]
 
     def _add(idx: int) -> None:
@@ -377,18 +392,34 @@ def select_class_indices(
         for idx in np.unique(gt_crop):
             idx = int(idx)
             name = name_by_idx.get(idx)
-            if name is None or name in exclude:
+            if name is None or name in ("background", "anatomical_region", "other-tissue"):
                 continue
             if name == "GTVp" or name in allowed or name in always_include:
                 _add(idx)
 
-    # Top-k by mean prob in crop
-    means = probs_crop.reshape(probs_crop.shape[0], -1).mean(axis=1)
-    order = np.argsort(-means)
+    # Score top-k inside GTVp support (GT or soft), not whole crop
+    p_gtvp = probs_crop[int(gtvp_index)]
+    support = p_gtvp >= 0.05
+    if gt_crop is not None:
+        support = support | (gt_crop == int(gtvp_index))
+    if not np.any(support):
+        support = np.ones(p_gtvp.shape, dtype=bool)
+
+    # Mean P within support; ignore excluded bulk fillers for top-k
+    scores = np.zeros(probs_crop.shape[0], dtype=np.float64)
+    for idx in range(probs_crop.shape[0]):
+        name = name_by_idx.get(idx, "")
+        if name in exclude:
+            continue
+        scores[idx] = float(probs_crop[idx][support].mean())
+
+    order = np.argsort(-scores)
     added = 0
     for idx in order:
         idx = int(idx)
         if idx in selected:
+            continue
+        if scores[idx] <= 0:
             continue
         name = name_by_idx.get(idx, "")
         if name in exclude:
