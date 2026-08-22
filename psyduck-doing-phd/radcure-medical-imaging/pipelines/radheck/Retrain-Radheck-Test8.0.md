@@ -36,6 +36,8 @@ set -a && source .env && set +a
 export TEST8_0_WORK_ROOT=/media/HDD_8TB/xisca/work/retrain_test8_0
 export TEST5_WORK_ROOT=/media/HDD_8TB/xisca/work/retrain_test5
 export TEST8_0_DATASET650=/media/HDD_8TB/xisca/work/retrain_test5/Dataset650_TotalSegmentator
+# optional if RADHECK_CURRENT is missing:
+# export TEST5_RADHECK_CASES=/media/HDD_8TB/xisca/work/retrain_test5/RADHECK_1047/cases
 export TEST5_HECKTOR_TRAIN_SOURCE=/media/HDD_8TB/xisca/dataset/hecktor/HECKTOR2025_task1_training/unzipped/task1
 export TEST5_HECKTOR_TEST_SOURCE=/media/HDD_8TB/xisca/dataset/hecktor/test1/unzipped/test1
 export CUDA_VISIBLE_DEVICES=1
@@ -53,7 +55,11 @@ In `experiments/configs/local.yaml`:
 
 ## Step 1 — Build CT + PET Dataset650 (HECKTOR-only)
 
-Hardlinks Test5 `_0000` CT + labels; writes `_0001` PET (SUV, resampled to CT, same slice crop). Fails if any kept HECKTOR case is missing `__PT.nii.gz`.
+Hardlinks Test5 CT `_0000` + labels from **Dataset650** when present, otherwise from
+`${TEST5_WORK_ROOT}/RADHECK_*/cases/{id}/output/` (same transform, PET was never
+copied there). Writes `_0001` from the **original** HECKTOR `{id}__PT.nii.gz`.
+Keeps every HECKTOR row in Test5 `case_map.json` (Tr/Va/Ts). Fails if a mapped
+case has no transform output or no original PET.
 
 ```bash
 python -m pipelines.test8_0.build_dataset --dry-run

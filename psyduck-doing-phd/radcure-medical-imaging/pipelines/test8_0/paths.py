@@ -33,6 +33,33 @@ def test5_dataset650() -> Path:
     ).expanduser()
 
 
+def resolve_test5_cases_root(test5_work: Path | None = None) -> Path:
+    """Test5 ``RADHECK_{N}/cases`` (CT+labels in ``output/``; PET was not copied)."""
+    explicit = os.getenv("TEST5_RADHECK_CASES", "").strip()
+    if explicit:
+        p = Path(explicit).expanduser().resolve()
+        if p.is_dir():
+            return p
+    root = (test5_work or test5_work_root()).expanduser().resolve()
+    pointer = root / "RADHECK_CURRENT"
+    if pointer.exists():
+        try:
+            cases = pointer.resolve() / "cases"
+            if cases.is_dir():
+                return cases
+        except (OSError, RuntimeError):
+            pass
+    for rad in sorted(root.glob("RADHECK_*"), reverse=True):
+        if rad.name == "RADHECK_CURRENT":
+            continue
+        cases = rad / "cases"
+        if cases.is_dir():
+            return cases
+    raise FileNotFoundError(
+        f"No RADHECK_*/cases under {root}. Set TEST5_RADHECK_CASES or TEST5_WORK_ROOT."
+    )
+
+
 def organ_dictionary_has_gtvp_gtvn(path: Path) -> bool:
     try:
         with open(path) as f:

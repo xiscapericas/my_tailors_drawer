@@ -30,12 +30,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from image_processor.conventions import get_hecktor_paths
+from image_processor.conventions import HECKTOR, get_hecktor_paths, get_nnunet_case_number
 from image_processor.io.pet_align import build_pet_nnunet_channel
-from pipelines.test5.build_dataset650 import _link_or_copy
+from pipelines.test5.build_dataset650 import _hecktor_unique_stem, _link_or_copy
 from pipelines.test5.paths import default_hecktor_sources
 from pipelines.test8_0.paths import (
     pin_test8_0_env,
+    resolve_test5_cases_root,
     resolve_test5_organ_dictionary,
     test5_dataset650,
     test5_work_root,
@@ -57,6 +58,91 @@ def hecktor_rows_from_case_map(case_map: dict) -> Dict[str, dict]:
         if row.get("cohort") == "hecktor":
             out[stem] = row
     return out
+
+
+def index_test5_ct_channels(src650: Path) -> Dict[str, Tuple[str, Path]]:
+    """stem → (split, path) for every ``*_0000.nii.gz`` in Test5 imagesTr/Va/Ts."""
+    found: Dict[str, Tuple[str, Path]] = {}
+    for split in ("Tr", "Va", "Ts"):
+        folder = src650 / f"images{split}"
+        if not folder.is_dir():
+            continue
+        for path in sorted(folder.glob("*_0000.nii.gz")):
+            stem = path.name[: -len("_0000.nii.gz")]
+            found[stem] = (split, path)
+    return found
+
+
+def candidate_stems(stem: str, case_id: str) -> List[str]:
+    """Filenames Test5 may have used for one HECKTOR case."""
+    out: List[str] = []
+    for s in (
+        stem,
+        _hecktor_unique_stem(case_id) if case_id else "",
+        f"case_{get_nnunet_case_number(case_id, HECKTOR)}" if case_id else "",
+    ):
+        if s and s not in out:
+            out.append(s)
+    return out
+
+
+def find_radheck_output_pair(cases_root: Path, case_id: str) -> Tuple[Path, Path]:
+    """Test5 transformed CT + labels under ``RADHECK_*/cases/{id}/output/``."""
+    case_dir = cases_root / case_id
+    out_i = case_dir / "output" / "image"
+    out_l = case_dir / "output" / "labels"
+    num = get_nnunet_case_number(case_id, HECKTOR)
+    fname = f"case_{num}_0000.nii.gz"
+    img = out_i / fname
+    lbl = out_l / fname
+    if img.is_file() and lbl.is_file():
+        return img, lbl
+    imgs = sorted(out_i.glob("*.nii.gz")) if out_i.is_dir() else []
+    lbls = sorted(out_l.glob("*.nii.gz")) if out_l.is_dir() else []
+    if imgs and lbls:
+        return imgs[0], lbls[0]
+    raise FileNotFoundError(
+        f"No Test5 transform output for {case_id} under {case_dir}/output/"
+    )
+
+
+def resolve_test5_ct(
+    src650: Path,
+    *,
+    stem: str,
+    split: str,
+    case_id: str,
+    index: Dict[str, Tuple[str, Path]],
+    cases_root: Path | None = None,
+) -> Tuple[str, str, Path, Path, str]:
+    """
+    Locate Test5 processed CT + label.
+
+    Order: Dataset650 (any stem variant) → ``RADHECK_*/cases/{id}/output/``.
+    Destination stem/split stay the case_map values (do not drop map cases).
+    PET is never taken from RADHECK cases (no ``__PT`` there).
+
+    Returns (dest_stem, dest_split, ct_path, label_path, ct_source).
+    """
+    dest_stem = stem
+    dest_split = split
+    for cand in candidate_stems(stem, case_id):
+        if cand in index:
+            _found_split, ct_path = index[cand]
+            lbl = src650 / f"labels{_found_split}" / f"{cand}.nii.gz"
+            if lbl.is_file():
+                return dest_stem, dest_split, ct_path, lbl, "dataset650"
+        ct = src650 / f"images{split}" / f"{cand}_0000.nii.gz"
+        lbl = src650 / f"labels{split}" / f"{cand}.nii.gz"
+        if ct.is_file() and lbl.is_file():
+            return dest_stem, dest_split, ct, lbl, "dataset650"
+    if cases_root is not None:
+        img, lbl = find_radheck_output_pair(cases_root, case_id)
+        return dest_stem, dest_split, img, lbl, "radheck_cases_output"
+    raise FileNotFoundError(
+        f"No Test5 CT/label for {case_id} in Dataset650 or RADHECK cases/output "
+        f"(map stem={stem} split={split})"
+    )
 
 
 def resolve_hecktor_case_dir(case_id: str, sources: List[Path]) -> Path:
@@ -124,35 +210,46 @@ def build_one_case(
     src650: Path,
     dst650: Path,
     sources: List[Path],
+    cases_root: Path | None,
     link_mode: str,
     dry_run: bool,
+    index: Dict[str, Tuple[str, Path]],
 ) -> dict:
     split = row.get("split") or "Tr"
     case_id = row["case_id"]
-    src_img = src650 / f"images{split}" / f"{stem}_0000.nii.gz"
-    src_lbl = src650 / f"labels{split}" / f"{stem}.nii.gz"
-    if not src_img.is_file():
-        raise FileNotFoundError(f"Test5 CT missing: {src_img}")
-    if not src_lbl.is_file():
-        raise FileNotFoundError(f"Test5 label missing: {src_lbl}")
+    dest_stem, dest_split, src_img, src_lbl, ct_source = resolve_test5_ct(
+        src650,
+        stem=stem,
+        split=split,
+        case_id=case_id,
+        index=index,
+        cases_root=cases_root,
+    )
 
-    dst_img0 = dst650 / f"images{split}" / f"{stem}_0000.nii.gz"
-    dst_img1 = dst650 / f"images{split}" / f"{stem}_0001.nii.gz"
-    dst_lbl = dst650 / f"labels{split}" / f"{stem}.nii.gz"
+    dst_img0 = dst650 / f"images{dest_split}" / f"{dest_stem}_0000.nii.gz"
+    dst_img1 = dst650 / f"images{dest_split}" / f"{dest_stem}_0001.nii.gz"
+    dst_lbl = dst650 / f"labels{dest_split}" / f"{dest_stem}.nii.gz"
 
-    case_dir = resolve_hecktor_case_dir(case_id, sources)
-    paths = get_hecktor_paths(str(case_dir), case_id)
+    # PET always from original HECKTOR zip (RADHECK cases/ did not copy __PT)
+    pet_dir = resolve_hecktor_case_dir(case_id, sources)
+    paths = get_hecktor_paths(str(pet_dir), case_id)
     if not os.path.isfile(paths["path_pet"]):
         raise FileNotFoundError(
-            f"PET missing for {case_id} (split={split} stem={stem}): {paths['path_pet']}"
+            f"Original PET missing for {case_id}: {paths['path_pet']}"
+        )
+    if not os.path.isfile(paths["path_ct"]):
+        raise FileNotFoundError(
+            f"Original CT missing for PET resample ({case_id}): {paths['path_ct']}"
         )
 
     expected = tuple(int(x) for x in nib.load(str(src_img)).shape)
     info = {
-        "stem": stem,
+        "stem": dest_stem,
+        "map_stem": stem,
         "case_id": case_id,
-        "split": split,
-        "source_case_dir": str(case_dir),
+        "split": dest_split,
+        "ct_source": ct_source,
+        "pet_source": str(paths["path_pet"]),
         "expected_shape": expected,
     }
     if dry_run:
@@ -185,6 +282,11 @@ def main() -> None:
     )
     parser.add_argument("--organ-dictionary", default="")
     parser.add_argument(
+        "--cases-root",
+        default=os.getenv("TEST5_RADHECK_CASES", ""),
+        help="Test5 RADHECK_*/cases (transform output). PET still comes from HECKTOR zip.",
+    )
+    parser.add_argument(
         "--link",
         choices=("hardlink", "symlink", "copy"),
         default=os.getenv("TEST8_0_DATASET_LINK_MODE", "hardlink"),
@@ -215,7 +317,15 @@ def main() -> None:
     if not hecktor:
         raise RuntimeError(f"No cohort=hecktor rows in {map_path}")
 
+    index = index_test5_ct_channels(src650)
+    n_disk = len(list((src650 / "imagesTr").glob("*_0000.nii.gz"))) if (src650 / "imagesTr").is_dir() else 0
+    n_disk_ts = len(list((src650 / "imagesTs").glob("*_0000.nii.gz"))) if (src650 / "imagesTs").is_dir() else 0
+
     sources = default_hecktor_sources()
+    if args.cases_root.strip():
+        cases_root = Path(args.cases_root).expanduser().resolve()
+    else:
+        cases_root = resolve_test5_cases_root(test5_work)
     items = sorted(hecktor.items(), key=lambda kv: (kv[1].get("split", ""), kv[0]))
     if args.max_cases and args.max_cases > 0:
         items = items[: args.max_cases]
@@ -223,10 +333,18 @@ def main() -> None:
     print("=" * 70)
     print("Test 8.0 — HECKTOR-only Test5 split + PET channel")
     print(f"Test5 Dataset650: {src650}")
-    print(f"HECKTOR cases in map: {len(hecktor)}  this run: {len(items)}")
-    print(f"HECKTOR sources: {sources}")
+    print(f"Test5 RADHECK cases: {cases_root}")
+    print(f"HECKTOR rows in case_map.json: {len(hecktor)}")
+    print(f"Test5 images on disk: Tr={n_disk} Ts={n_disk_ts} (all cohorts)")
+    print(f"Indexed Dataset650 CT channels: {len(index)}")
+    print(f"Original HECKTOR (PET) sources: {sources}")
     print(f"Dest work: {work}")
     print("=" * 70)
+    print(
+        "CT/labels: Dataset650 if present, else RADHECK_*/cases/*/output/. "
+        "PET: original {id}__PT.nii.gz (not copied into RADHECK cases). "
+        "Split membership from case_map.json."
+    )
 
     dst650 = work / "Dataset650_TotalSegmentator"
     if not args.dry_run:
@@ -246,8 +364,10 @@ def main() -> None:
                     src650=src650,
                     dst650=dst650,
                     sources=sources,
+                    cases_root=cases_root,
                     link_mode=args.link,
                     dry_run=args.dry_run,
+                    index=index,
                 )
             )
             print(f"  ok {row.get('split')} {stem} {row.get('case_id')}")
@@ -255,16 +375,22 @@ def main() -> None:
             failed.append((stem, str(e)))
             print(f"  FAIL {stem}: {e}")
 
+    print(f"\nBuilt={len(built)} failed={len(failed)}")
+
     if failed:
         raise RuntimeError(
-            f"{len(failed)} HECKTOR case(s) failed (missing PET or shape mismatch). "
-            "Fix sources or drop those ids from the Test5 map.\n"
+            f"{len(failed)} HECKTOR case(s) failed (missing PET or shape mismatch).\n"
             + "\n".join(f"  {s}: {m}" for s, m in failed[:20])
         )
+    if not built:
+        raise RuntimeError(
+            "No HECKTOR cases built. Need case_map HECKTOR rows plus "
+            "Dataset650 and/or RADHECK_*/cases/*/output/."
+        )
 
-    n_tr = sum(1 for _, r in items if r.get("split") == "Tr")
-    n_ts = sum(1 for _, r in items if r.get("split") == "Ts")
-    n_va = sum(1 for _, r in items if r.get("split") == "Va")
+    n_tr = sum(1 for b in built if b.get("split") == "Tr")
+    n_ts = sum(1 for b in built if b.get("split") == "Ts")
+    n_va = sum(1 for b in built if b.get("split") == "Va")
 
     if not args.dry_run:
         organ_src = resolve_test5_organ_dictionary(
@@ -276,7 +402,17 @@ def main() -> None:
             organ_dst.unlink()
         shutil.copy2(organ_src, organ_dst)
 
-        filtered_map = {stem: hecktor[stem] for stem, _ in items}
+        filtered_map = {}
+        for b in built:
+            key = b["stem"]
+            src_row = hecktor.get(b.get("map_stem") or key) or hecktor.get(key) or {}
+            filtered_map[key] = {
+                **src_row,
+                "stem": key,
+                "case_id": b["case_id"],
+                "cohort": "hecktor",
+                "split": b["split"],
+            }
         ts_map = {k: v for k, v in filtered_map.items() if v.get("split") == "Ts"}
         with open(dst650 / "case_map.json", "w") as f:
             json.dump(filtered_map, f, indent=2)
@@ -316,6 +452,7 @@ def main() -> None:
         "hecktor_only": True,
         "n_hecktor_in_test5_map": len(hecktor),
         "n_built": len(built),
+        "radheck_cases_root": str(cases_root),
         "n_tr": n_tr,
         "n_va": n_va,
         "n_ts": n_ts,

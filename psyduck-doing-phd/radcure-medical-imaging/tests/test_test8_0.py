@@ -121,6 +121,68 @@ class TestDatasetHelpers(unittest.TestCase):
         rows = hecktor_rows_from_case_map(case_map)
         self.assertEqual(list(rows), ["case_hek_CHUM_001"])
 
+    def test_resolve_test5_ct_finds_file_in_other_split_or_stem(self):
+        from pipelines.test8_0.build_dataset import (
+            candidate_stems,
+            index_test5_ct_channels,
+            resolve_test5_ct,
+        )
+
+        self.assertIn("case_hek_CHUM_015", candidate_stems("case_hek_CHUM_015", "CHUM-015"))
+        self.assertIn("case_015", candidate_stems("case_hek_CHUM_015", "CHUM-015"))
+
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "imagesTr").mkdir(parents=True)
+            (root / "labelsTr").mkdir(parents=True)
+            ct = root / "imagesTr" / "case_015_0000.nii.gz"
+            lbl = root / "labelsTr" / "case_015.nii.gz"
+            ct.write_bytes(b"x")
+            lbl.write_bytes(b"x")
+            index = index_test5_ct_channels(root)
+            stem, split, ct_p, lbl_p, src = resolve_test5_ct(
+                root,
+                stem="case_hek_CHUM_015",
+                split="Tr",
+                case_id="CHUM-015",
+                index=index,
+            )
+            self.assertEqual(stem, "case_hek_CHUM_015")
+            self.assertEqual(split, "Tr")
+            self.assertEqual(src, "dataset650")
+            self.assertEqual(ct_p, ct)
+            self.assertEqual(lbl_p, lbl)
+
+    def test_resolve_falls_back_to_radheck_output(self):
+        from pipelines.test8_0.build_dataset import find_radheck_output_pair, resolve_test5_ct
+
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "imagesTr").mkdir(parents=True)
+            cases = root / "RADHECK_1" / "cases" / "CHUM-017"
+            img_dir = cases / "output" / "image"
+            lbl_dir = cases / "output" / "labels"
+            img_dir.mkdir(parents=True)
+            lbl_dir.mkdir(parents=True)
+            ct = img_dir / "case_017_0000.nii.gz"
+            lbl = lbl_dir / "case_017_0000.nii.gz"
+            ct.write_bytes(b"x")
+            lbl.write_bytes(b"x")
+            img, lab = find_radheck_output_pair(root / "RADHECK_1" / "cases", "CHUM-017")
+            self.assertEqual(img, ct)
+            stem, split, ct_p, lbl_p, src = resolve_test5_ct(
+                root,
+                stem="case_hek_CHUM_017",
+                split="Tr",
+                case_id="CHUM-017",
+                index={},
+                cases_root=root / "RADHECK_1" / "cases",
+            )
+            self.assertEqual(stem, "case_hek_CHUM_017")
+            self.assertEqual(src, "radheck_cases_output")
+            self.assertEqual(ct_p, ct)
+            self.assertEqual(lbl_p, lbl)
+
 
 class TestPetDisplay(unittest.TestCase):
     def test_clips_hot_voxel(self):
