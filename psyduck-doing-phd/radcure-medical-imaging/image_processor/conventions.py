@@ -52,10 +52,14 @@ def get_nnunet_case_number(case_id: str, convention: str) -> str:
 
 def get_hecktor_paths(case_folder: str, case_id: str) -> dict:
     """
-    Return CT and mask paths for a HECKTOR case.
+    Return CT, PET, and mask paths for a HECKTOR case.
 
-    HECKTOR layout: {case_folder}/{case_id}__CT.nii.gz, {case_folder}/{case_id}.nii.gz
+    HECKTOR layout:
+      {case_folder}/{case_id}__CT.nii.gz
+      {case_folder}/{case_id}__PT.nii.gz  (SUV PET; unused before Test 8.0)
+      {case_folder}/{case_id}.nii.gz      (labels: GTVp=1, GTVn=2)
     """
     path_ct = os.path.join(case_folder, f"{case_id}__CT.nii.gz")
+    path_pet = os.path.join(case_folder, f"{case_id}__PT.nii.gz")
     path_mask = os.path.join(case_folder, f"{case_id}.nii.gz")
-    return {"path_ct": path_ct, "path_mask": path_mask}
+    return {"path_ct": path_ct, "path_pet": path_pet, "path_mask": path_mask}

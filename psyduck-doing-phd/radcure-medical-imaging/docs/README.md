@@ -50,6 +50,7 @@ Connected map: install, pipeline scripts, experiment registry, nnUNet reference,
 | Test6 STU-Net explore notebook (historical) | [test6_stunet/README.md](../research_notebooks/test6_stunet/README.md) |
 | Start Test7 (probability outputs + region-vs-GTVp curves) | [Retrain-Radheck-Test7.md](../pipelines/radheck/Retrain-Radheck-Test7.md) |
 | Test7 results write-up | [Test7-Results.md](../pipelines/test7/Test7-Results.md) |
+| Start Test 8.0 (HECKTOR PET channel) | [Retrain-Radheck-Test8.0.md](../pipelines/radheck/Retrain-Radheck-Test8.0.md) |
 
 ---
 

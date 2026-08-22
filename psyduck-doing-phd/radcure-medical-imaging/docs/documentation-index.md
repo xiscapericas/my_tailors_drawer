@@ -41,6 +41,7 @@ Single map of **all** docs. Each topic has **one canonical file** — others lin
 | [pipelines/README.md](../pipelines/README.md) | Overview |
 | [pipelines/radheck/](../pipelines/radheck/) | Build Dataset650, leak checks, server runbooks |
 | [pipelines/hecktor/](../pipelines/hecktor/) | HECKTOR test download / process / predict / eval |
+| [pipelines/test8_0/](../pipelines/test8_0/) | Test 8.0 HECKTOR-only CT+PET Dataset650 |
 
 | Module | Role |
 |--------|------|
@@ -67,6 +68,7 @@ Single map of **all** docs. Each topic has **one canonical file** — others lin
 |---------|------|
 | [Retrain-Radheck-Test3.md](../pipelines/radheck/Retrain-Radheck-Test3.md) | test3 (700 epochs) |
 | [Retrain-Radheck-Test2.md](../pipelines/radheck/Retrain-Radheck-Test2.md) | test2 (1000 epochs, multi-organ notes) |
+| [Retrain-Radheck-Test8.0.md](../pipelines/radheck/Retrain-Radheck-Test8.0.md) | test8.0 (HECKTOR PET channel) |
 
 ---
 
@@ -93,6 +95,9 @@ Single map of **all** docs. Each topic has **one canonical file** — others lin
 | [Retrain-Radheck-Test7.md](../pipelines/radheck/Retrain-Radheck-Test7.md) | **Test7** — Test5 model soft probs + region-vs-GTVp curves + alpha viz |
 | [test7_radheck_probability_outputs.yaml](../experiments/configs/test7_radheck_probability_outputs.yaml) | Test7 experiment config |
 | [Test7-Results.md](../pipelines/test7/Test7-Results.md) | **Test7 results** — soft-prob / GTVp–anatomy competition write-up |
+| [Retrain-Radheck-Test8.0.md](../pipelines/radheck/Retrain-Radheck-Test8.0.md) | **Test 8.0** — HECKTOR-only Test5 split + PET channel |
+| [test8_0_hecktor_pet_channel.yaml](../experiments/configs/test8_0_hecktor_pet_channel.yaml) | Test 8.0 experiment config |
+| [test8_0_pet/](../research_notebooks/test8_0_pet/) | Test 8.0 Phase 1 PET explore |
 | [FINDINGS.md](../research_notebooks/preprocessing_pipeline_review/FINDINGS.md) | **Handoff** — Steps A–E; canonical organ dict; next = production wiring / Dice |
 | [organ_dictionary_hn_canonical.json](../image_processor/resources/organ_dictionary_hn_canonical.json) | Fixed H&N labels: TS organs + GTVp/GTVn (case-independent) |
 | [Surface_Dice_Analysis_Report.md](../research_notebooks/Surface_Dice_Analysis_Report.md) | Metric exploration notes |

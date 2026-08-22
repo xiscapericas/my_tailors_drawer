@@ -1,14 +1,17 @@
 """Visualization utilities for medical images and masks."""
 
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from matplotlib.colors import ListedColormap, BoundaryNorm, Colormap
-from matplotlib.backends.backend_pdf import PdfPages
-from typing import Optional, List, Dict, Union
-import SimpleITK as sitk
 import json
 import os
+from typing import Dict, List, Optional, Tuple, Union
+
+import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
+import nibabel as nib
+import numpy as np
+import SimpleITK as sitk
+from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.colors import BoundaryNorm, Colormap, ListedColormap
+
 from image_processor.io.nifti_handler import NIfTIHandler
 
 
@@ -33,6 +36,16 @@ def _get_cmap(name: str, lut: Optional[int] = None) -> Union[Colormap, ListedCol
             f"Cannot load colormap {name!r}: no plt.colormaps or get_cmap"
         )
     return get_cmap(name, lut) if lut is not None else get_cmap(name)
+
+
+def _pet_display_slice(pet_slice: np.ndarray) -> Tuple[np.ndarray, float]:
+    """Clip SUV for display: [0, max(p99, small epsilon)]. Does not mutate files."""
+    finite = pet_slice[np.isfinite(pet_slice)]
+    if finite.size == 0:
+        return np.nan_to_num(pet_slice), 1.0
+    vmax = float(np.percentile(finite, 99))
+    vmax = max(vmax, 1e-6)
+    return np.clip(pet_slice, 0.0, vmax), vmax
 
 
 class MedicalImageVisualizer:
@@ -428,7 +441,7 @@ class MedicalImageVisualizer:
         slice_indices: Optional[List[int]] = None
     ) -> None:
         """
-        Visualize CT image, ground truth mask, and predicted mask side by side.
+        Visualize CT image, optional PET, ground truth mask, and predicted mask.
         
         Parameters
         ----------
@@ -450,6 +463,10 @@ class MedicalImageVisualizer:
             If True, displays figures interactively
         slice_indices : List[int], optional
             Specific slice indices to visualize. If None, shows all slices.
+
+        When ``{case_id}_0001.nii.gz`` exists (PET channel), each page has four
+        image panels: CT, PET, GT mask, predicted mask. Otherwise three panels
+        (Test5–7).
         """
         # Load organ dictionary
         if not os.path.exists(organ_dictionary_path):
@@ -464,8 +481,9 @@ class MedicalImageVisualizer:
         index_to_organ: Dict[int, str] = {v: k for k, v in organ_dict.items()}
         
         # Construct file paths
-        # Images have _0000 suffix, labels don't
+        # Images have _0000 (CT) and optional _0001 (PET); labels have no channel suffix
         image_path = os.path.join(images_folder, f"{case_id}_0000.nii.gz")
+        pet_path = os.path.join(images_folder, f"{case_id}_0001.nii.gz")
         label_path = os.path.join(labels_folder, f"{case_id}.nii.gz")
         predicted_path = os.path.join(predicted_labels_folder, f"{case_id}.nii.gz")
         
@@ -479,6 +497,15 @@ class MedicalImageVisualizer:
         img_vol = NIfTIHandler.load_nii_image(image_path)
         gt_mask_vol = NIfTIHandler.load_nii_mask(label_path)
         pred_mask_vol = NIfTIHandler.load_nii_mask(predicted_path)
+        pet_vol = None
+        if os.path.isfile(pet_path):
+            pet_vol = nib.load(pet_path).get_fdata().astype(np.float32)
+            if pet_vol.shape != img_vol.shape:
+                print(
+                    "⚠️ Warning: PET and CT have different shapes:",
+                    pet_vol.shape,
+                    img_vol.shape,
+                )
         
         # Determine maximum label across both masks for unified colormap
         max_label = max(int(gt_mask_vol.max()), int(pred_mask_vol.max()))
@@ -540,6 +567,8 @@ class MedicalImageVisualizer:
         
         num_slices = min(img_vol.shape[axis], gt_mask_vol.shape[axis], 
                         pred_mask_vol.shape[axis])
+        if pet_vol is not None:
+            num_slices = min(num_slices, pet_vol.shape[axis])
         
         # Determine which slices to show
         if slice_indices is None:
@@ -576,6 +605,9 @@ class MedicalImageVisualizer:
                 img_slice = get_slice(img_vol, slice_idx, axis)
                 gt_slice = get_slice(gt_mask_vol, slice_idx, axis)
                 pred_slice = get_slice(pred_mask_vol, slice_idx, axis)
+                pet_slice = (
+                    get_slice(pet_vol, slice_idx, axis) if pet_vol is not None else None
+                )
                 
                 # Get unique labels present in THIS specific slice
                 unique_labels_slice_gt = set(np.unique(gt_slice).astype(int))
@@ -584,19 +616,36 @@ class MedicalImageVisualizer:
                 # Remove background (0) from legend
                 unique_labels_slice = [l for l in unique_labels_slice if l > 0]
                 
-                # Create figure with 3 panels + space for legend
-                fig = plt.figure(figsize=(18, 6))
-                gs = fig.add_gridspec(1, 4, width_ratios=[1, 1, 1, 0.4], hspace=0.3)
+                show_pet = pet_slice is not None
+                n_img = 4 if show_pet else 3
+                fig = plt.figure(figsize=(22 if show_pet else 18, 6))
+                gs = fig.add_gridspec(
+                    1, n_img + 1,
+                    width_ratios=[1] * n_img + [0.4],
+                    hspace=0.3,
+                )
                 
                 ax_img = fig.add_subplot(gs[0])
-                ax_gt = fig.add_subplot(gs[1])
-                ax_pred = fig.add_subplot(gs[2])
-                ax_legend = fig.add_subplot(gs[3])
+                if show_pet:
+                    ax_pet = fig.add_subplot(gs[1])
+                    ax_gt = fig.add_subplot(gs[2])
+                    ax_pred = fig.add_subplot(gs[3])
+                    ax_legend = fig.add_subplot(gs[4])
+                else:
+                    ax_gt = fig.add_subplot(gs[1])
+                    ax_pred = fig.add_subplot(gs[2])
+                    ax_legend = fig.add_subplot(gs[3])
                 
                 # Image panel
                 ax_img.imshow(img_slice, cmap="gray")
                 ax_img.set_title(f"CT Image\n(slice {slice_idx})", fontsize=12)
                 ax_img.axis("off")
+
+                if show_pet:
+                    pet_show, pet_vmax = _pet_display_slice(pet_slice)
+                    ax_pet.imshow(pet_show, cmap="inferno", vmin=0.0, vmax=pet_vmax)
+                    ax_pet.set_title(f"PET (SUV)\n(slice {slice_idx})", fontsize=12)
+                    ax_pet.axis("off")
                 
                 # Ground truth panel
                 ax_gt.imshow(gt_slice, cmap=cmap_mask, norm=norm_mask)

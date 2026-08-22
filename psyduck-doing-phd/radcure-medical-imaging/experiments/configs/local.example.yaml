@@ -51,5 +51,12 @@ RETRAIN_RADHECK_TEST3: /path/to/work/nnunet_radheck_test_3_retrain
 # RETRAIN_RADHECK_TEST5: /media/HDD_8TB/xisca/work/retrain_test5/nnunet_retrain  # model weights
 # TEST5_WORK_ROOT: /media/HDD_8TB/xisca/work/retrain_test5
 
+# Test 8.0 — CT + PET (HECKTOR-only Test5 split)
+# TEST8_0_WORK_ROOT: /media/HDD_8TB/xisca/work/retrain_test8_0
+# RETRAIN_RADHECK_TEST8_0: /media/HDD_8TB/xisca/work/retrain_test8_0/nnunet_retrain
+# RADHECK_DATASET_TEST8_0: /media/HDD_8TB/xisca/work/retrain_test8_0/Dataset650_TotalSegmentator
+# TEST8_0_DATASET650: /media/HDD_8TB/xisca/work/retrain_test5/Dataset650_TotalSegmentator
+# TEST8_0_DATASET_LINK_MODE: hardlink
+
 ORGAN_DICTIONARY_PATH: /path/to/radcure_dictionary.json
 NNUNET_PATH: /path/to/nnUNet

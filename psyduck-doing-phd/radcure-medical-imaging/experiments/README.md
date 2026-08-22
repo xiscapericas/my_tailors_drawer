@@ -36,6 +36,7 @@ Central registry and configs for RADCURE / HECKTOR (RADHECK) segmentation experi
 | test5 | Same as Test4 + **improved preprocess / QC** | 700 (planned) | — | — |
 | test6 | **STU-Net** fine-tune on Test5 Dataset650 | 1000 (planned) | — | — |
 | test7 | **Probability outputs** (Test5 model; curves + alpha viz) | — (no retrain) | — | — |
+| test8.0 | HECKTOR-only Test5 split + **PET channel** | 700 (planned) | n/a (no RADCURE) | — |
 
 Details and narrative: [`research_notebooks/retrain_epoch_study/retrain_epoch_study.md`](../research_notebooks/retrain_epoch_study/retrain_epoch_study.md).
 
@@ -90,6 +91,7 @@ Avoid: `650`, `dataset152`, `good_run`, `final_v2` (not hypotheses; dataset ids 
 | `test2_radheck_1000epochs.yaml` | test1 | add HECKTOR training |
 | `test3_radheck_700epochs.yaml` | test2 | epochs 1000 → 700 |
 | `test4_radheck_500epochs.yaml` | test3 | epochs 700 → 500 |
+| `test8_0_hecktor_pet_channel.yaml` | test5 | PET channel; HECKTOR-only Test5 split (id `test8.0`) |
 
 ### Server paths
 

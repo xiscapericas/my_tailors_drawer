@@ -1,0 +1,76 @@
+# Test 8.0 — HECKTOR CT + PET channel vs Test5 (HECKTOR-only split)
+#
+# One-line rule: Test 8.0 changes the input from CT-only to CT + PET compared
+# to test5, and restricts the Test5 Tr/Va/Ts pool to HECKTOR cases (RADCURE has
+# no PET); labels, TotalSegmentator organs, and 700-epoch NoMirroring stay the same.
+
+experiment:
+  id: test8.0
+  name: HECKTOR — Test5 architecture + PET channel (first attempt)
+  status: planned
+  changed_from: test5
+  hypothesis: >
+    Adding FDG PET (SUV) as nnUNet channel 1, on the same Test5 HECKTOR
+    split membership and organ/GTVp/GTVn labels, improves GTVp Dice vs the
+    Test5 HECKTOR subset (CT-only).
+
+training:
+  needs_dataset_build: true
+  needs_plan_preprocess: true
+  reuse_preprocessed_from: null
+
+  cohorts: [hecktor]
+  dataset_id: 650
+  dataset_folder: ${RADHECK_DATASET_TEST8_0}
+  nnunet_retrain_path: ${RETRAIN_RADHECK_TEST8_0}
+  nnunet_preprocessed_path: null
+
+  tumor_label_mode: separate
+  background_mode: improved
+  input_channels: [CT, PET]
+  hecktor_only_test5_split: true
+
+  sources:
+    test5_dataset650: ${TEST8_0_DATASET650}
+    hecktor_train: ${TEST5_HECKTOR_TRAIN_SOURCE}
+    hecktor_test: ${TEST5_HECKTOR_TEST_SOURCE}
+
+  trainer: nnUNetTrainer_700epochs_NoMirroring
+  configuration: 3d_fullres
+  fold: 0
+  epochs: 700
+  custom_trainer_install: python -m nnunet_training.install_trainer_variants
+
+  setup:
+    - python -m pipelines.test8_0.build_dataset
+
+  env:
+    nnUNet_compile: "false"
+    CUDA_VISIBLE_DEVICES: "1"
+    NNUNET_DISABLE_TTA: "true"
+    NNUNET_USE_LOCAL_PREPROCESS: "1"
+
+evaluation:
+  model_dataset_id: 650
+  metrics:
+    - GTVp Dice
+    - GTVn Dice
+  hecktor:
+    dataset_folder: ${RADHECK_DATASET_TEST8_0}
+    steps:
+      - predict
+      - evaluation_visualization
+    output_predictions: ${RADHECK_DATASET_TEST8_0}/labelsTs_predicted
+    output_viz: ${RADHECK_DATASET_TEST8_0}/labelsTs_dice_and_viz
+    logs: ${RETRAIN_RADHECK_TEST8_0}/logs
+    visualization_panels: [CT, PET, GT, predicted]
+
+results:
+  primary_metric: GTVp Dice
+  secondary_metrics:
+    - GTVn Dice
+  hecktor:
+    mean_dice_gtvp: null
+    mean_dice_gtvn: null
+    n_cases: null
+  notes: "Compare only to Test5 HECKTOR Ts, not Test5 RADCURE Ts. See Retrain-Radheck-Test8.0.md"

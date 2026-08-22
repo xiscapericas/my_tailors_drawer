@@ -322,11 +322,50 @@ experiments:
       float16, tumor ROI) → curves + alpha viz. Raw .npz deleted after slim.
       Hard Dice is not the primary metric.
 
+  test8.0:
+    id: test8.0
+    name: HECKTOR — Test5 architecture + PET channel (first attempt)
+    status: planned
+    config_file: configs/test8_0_hecktor_pet_channel.yaml
+    changed_from: test5
+    hypothesis: >
+      Adding FDG PET (SUV) as nnUNet channel 1 on the Test5 HECKTOR-only split
+      (same Tr/Va/Ts membership, no RADCURE) improves GTVp Dice vs Test5 HECKTOR
+      CT-only.
+    training:
+      cohorts: [hecktor]
+      dataset_id: 650
+      tumor_label_mode: separate
+      background_mode: improved
+      input_channels: [CT, PET]
+      hecktor_only_test5_split: true
+      trainer: nnUNetTrainer_700epochs_NoMirroring
+      epochs: 700
+      configuration: 3d_fullres
+      build_script: pipelines/test8_0/build_dataset.py
+      retrain_runbook: pipelines/radheck/Retrain-Radheck-Test8.0.md
+      preprocessing_notebook: research_notebooks/test8_0_pet/test8_0_pet_explore.ipynb
+    evaluation:
+      model_dataset_id: 650
+      metrics: [GTVp Dice, GTVn Dice]
+      visualization_panels: [CT, PET, GT, predicted]
+      unified_ts: true
+    results:
+      primary_metric: GTVp Dice
+      secondary_metrics: [GTVn Dice]
+      hecktor:
+        mean_dice_gtvp: null
+        mean_dice_gtvn: null
+        n_cases: null
+    notes: |
+      Do not re-run TotalSegmentator. Do not reuse Test5 nnUNet_preprocessed.
+      Compare HECKTOR Ts only vs Test5 HECKTOR subset.
+
 # ---------------------------------------------------------------------------
 # Next experiment — naming rules (see experiments/README.md § Naming convention)
 # ---------------------------------------------------------------------------
 #
-# Before Test8+:
+# Before Test8.1+ / Test9+:
 #   1. "Test{N} changes ___ compared to {changed_from}; everything else is identical."
 #   2. configs/test{N}_{cohort}_{variable}.yaml
 #   3. local.yaml: RETRAIN_RADHECK_TEST{N} → .../nnunet_radheck_test_{N}_retrain

@@ -12,6 +12,7 @@ import sys
 import json
 import shutil
 from pathlib import Path
+from typing import Optional
 
 # Try to load from .env file if python-dotenv is available
 try:
@@ -27,6 +28,48 @@ def add_nnunet_to_path(nnunet_path: str):
     """Add nnUNet to Python path."""
     if nnunet_path not in sys.path:
         sys.path.append(nnunet_path)
+
+
+def _nnunet_channel_index(filename: str) -> Optional[int]:
+    """Return channel index from ``stem_0001.nii.gz``, or None."""
+    if not filename.endswith(".nii.gz"):
+        return None
+    stem = filename[: -len(".nii.gz")]
+    if "_" not in stem:
+        return None
+    suffix = stem.rsplit("_", 1)[-1]
+    if suffix.isdigit() and len(suffix) == 4:
+        return int(suffix)
+    return None
+
+
+def _count_training_cases(imagesTr_dir: str) -> int:
+    """Unique nnUNet cases (``*_0000.nii.gz``), not one count per channel file."""
+    names = [f for f in os.listdir(imagesTr_dir) if f.endswith(".nii.gz")]
+    n0000 = sum(1 for f in names if f.endswith("_0000.nii.gz"))
+    if n0000 > 0:
+        return n0000
+    # Fallback: unique stem without channel suffix
+    stems = set()
+    for f in names:
+        ch = _nnunet_channel_index(f)
+        if ch is None:
+            stems.add(f[: -len(".nii.gz")])
+        else:
+            stems.add(f[: -len(f"_{ch:04d}.nii.gz")])
+    return len(stems)
+
+
+def _channel_names_from_images(imagesTr_dir: str) -> dict:
+    channels = set()
+    for f in os.listdir(imagesTr_dir):
+        ch = _nnunet_channel_index(f)
+        if ch is not None:
+            channels.add(ch)
+    default = {0: "CT", 1: "PET"}
+    if not channels:
+        return {0: "CT"}
+    return {i: default.get(i, f"channel_{i}") for i in sorted(channels)}
 
 
 def generate_dataset_json(config: TrainingConfig):
@@ -46,18 +89,21 @@ def generate_dataset_json(config: TrainingConfig):
     if not os.path.exists(imagesTr_dir):
         raise FileNotFoundError(f"Training images folder not found: {imagesTr_dir}")
     
-    num_training_cases = len([f for f in os.listdir(imagesTr_dir) if f.endswith('.nii.gz')])
+    num_training_cases = _count_training_cases(imagesTr_dir)
     
     if num_training_cases == 0:
         raise ValueError(f"No training cases found in {imagesTr_dir}")
+
+    channel_names = _channel_names_from_images(imagesTr_dir)
     
     print(f"Generating dataset.json for {config.dataset_name}...")
     print(f"  Training cases: {num_training_cases}")
+    print(f"  Channels: {channel_names}")
     print(f"  Labels: {len(config.labels)}")
     
     generate_dataset_json(
         output_folder=config.dataset_folder,
-        channel_names={0: "CT"},
+        channel_names=channel_names,
         labels=config.labels,
         num_training_cases=num_training_cases,
         file_ending=".nii.gz",
@@ -226,8 +272,8 @@ def verify_and_fix_file_naming(config: TrainingConfig):
         
         files = [f for f in os.listdir(folder_path) if f.endswith('.nii.gz')]
         for file in files:
-            if not file.endswith('_0000.nii.gz'):
-                print(f"⚠️  Warning: Image file {file} in {folder_name} should end with '_0000.nii.gz'")
+            if _nnunet_channel_index(file) is None:
+                print(f"⚠️  Warning: Image file {file} in {folder_name} should end with '_XXXX.nii.gz'")
     
     # Check and fix labels
     renamed_count = 0
