@@ -73,18 +73,50 @@ def _percentile_01(volume: np.ndarray) -> np.ndarray:
     return np.nan_to_num(data)
 
 
+def _best_z_start_3d(full_d: np.ndarray, crop_d: np.ndarray) -> Tuple[int, float]:
+    zf, zc = full_d.shape[2], crop_d.shape[2]
+    crop_n = crop_d - float(crop_d.mean())
+    crop_norm = float(np.linalg.norm(crop_n)) + 1e-8
+    best_s, best_corr = 0, -1.0
+    for s in range(zf - zc + 1):
+        w = full_d[:, :, s : s + zc]
+        w = w - float(w.mean())
+        corr = float(np.sum(w * crop_n) / ((np.linalg.norm(w) + 1e-8) * crop_norm))
+        if corr > best_corr:
+            best_corr, best_s = corr, s
+    return best_s, best_corr
+
+
+def _best_z_start_profile(full_xyz: np.ndarray, crop_xyz: np.ndarray) -> Tuple[int, float]:
+    """z-window from per-slice mean (robust to in-plane rot/flip)."""
+    full_p = np.mean(full_xyz, axis=(0, 1))
+    crop_p = np.mean(crop_xyz, axis=(0, 1))
+    zf, zc = int(full_p.shape[0]), int(crop_p.shape[0])
+    crop_n = crop_p - float(crop_p.mean())
+    crop_norm = float(np.linalg.norm(crop_n)) + 1e-8
+    best_s, best_corr = 0, -1.0
+    for s in range(zf - zc + 1):
+        w = full_p[s : s + zc]
+        w = w - float(w.mean())
+        corr = float(np.dot(w, crop_n) / ((np.linalg.norm(w) + 1e-8) * crop_norm))
+        if corr > best_corr:
+            best_corr, best_s = corr, s
+    return best_s, best_corr
+
+
 def slices_matching_test5_crop(
     full_xyz: np.ndarray,
     crop_xyz: np.ndarray,
     *,
     min_corr: float = 0.5,
-) -> List[int]:
+    strict: bool = False,
+) -> Tuple[List[int], dict]:
     """
-    Contiguous z-window of ``full_xyz`` whose xy/z block matches ``crop_xyz``.
+    Contiguous z-window of ``full_xyz`` whose block matches ``crop_xyz``.
 
-    Test5 HECKTOR CT is a tumor-neighbourhood crop of the original CT. That
-    window can differ from recomputing slices on today's original mask
-    (e.g. CHUP_015: 28 vs 62). Match the saved Test5 volume instead.
+    Tries 3D correlation, slice-mean profiles, and a z-flip of the original.
+    If the best score is still below ``min_corr``, ``strict=True`` raises;
+    otherwise the best window is kept so the build can continue.
     """
     if full_xyz.ndim != 3 or crop_xyz.ndim != 3:
         raise ValueError(f"Expected 3D volumes, got {full_xyz.shape} and {crop_xyz.shape}")
@@ -96,37 +128,53 @@ def slices_matching_test5_crop(
     zf = int(full_xyz.shape[2])
     zc = int(crop_xyz.shape[2])
     if zc == zf:
-        return list(range(zf))
+        return list(range(zf)), {"corr": 1.0, "method": "full", "z_flipped": False, "weak_match": False}
     if zc > zf:
         raise ValueError(
             f"Test5 CT has more slices ({zc}) than original CT ({zf})"
         )
 
     step = 8 if min(full_xyz.shape[0], full_xyz.shape[1]) >= 32 else 1
-    full_d = _percentile_01(full_xyz[::step, ::step, :])
-    crop_d = np.asarray(crop_xyz[::step, ::step, :], dtype=np.float32)
-    if float(np.nanmax(crop_d)) > 1.5:
-        crop_d = _percentile_01(crop_d)
-    crop_n = crop_d - float(crop_d.mean())
-    crop_norm = float(np.linalg.norm(crop_n)) + 1e-8
+    full_n = _percentile_01(np.asarray(full_xyz, dtype=np.float32))
+    crop_n = np.asarray(crop_xyz, dtype=np.float32)
+    if float(np.nanmax(crop_n)) > 1.5:
+        crop_n = _percentile_01(crop_n)
+    full_d = full_n[::step, ::step, :]
+    crop_d = crop_n[::step, ::step, :]
 
-    best_s = 0
-    best_corr = -1.0
-    n_win = zf - zc + 1
-    for s in range(n_win):
-        w = full_d[:, :, s : s + zc]
-        w = w - float(w.mean())
-        corr = float(np.sum(w * crop_n) / ((np.linalg.norm(w) + 1e-8) * crop_norm))
-        if corr > best_corr:
-            best_corr = corr
-            best_s = s
+    candidates: List[Tuple[float, int, str, bool]] = []
 
-    if best_corr < min_corr:
+    s, c = _best_z_start_3d(full_d, crop_d)
+    candidates.append((c, s, "3d", False))
+    s, c = _best_z_start_profile(full_n, crop_n)
+    candidates.append((c, s, "profile", False))
+
+    full_flip = full_n[:, :, ::-1]
+    full_d_flip = full_flip[::step, ::step, :]
+    s, c = _best_z_start_3d(full_d_flip, crop_d)
+    candidates.append((c, zf - s - zc, "3d_zflip", True))
+    s, c = _best_z_start_profile(full_flip, crop_n)
+    candidates.append((c, zf - s - zc, "profile_zflip", True))
+
+    crop_rev = crop_n[:, :, ::-1]
+    crop_d_rev = crop_rev[::step, ::step, :]
+    s, c = _best_z_start_3d(full_d, crop_d_rev)
+    candidates.append((c, s, "3d_crop_zrev", False))
+
+    best_corr, best_s, method, z_flipped = max(candidates, key=lambda t: t[0])
+    best_s = int(np.clip(best_s, 0, zf - zc))
+    meta = {
+        "corr": float(best_corr),
+        "method": method,
+        "z_flipped": z_flipped,
+        "weak_match": bool(best_corr < min_corr),
+    }
+    if best_corr < min_corr and strict:
         raise ValueError(
             "Could not locate Test5 CT crop inside original CT "
             f"(best corr={best_corr:.3f} < {min_corr}, z_full={zf}, z_crop={zc})"
         )
-    return list(range(best_s, best_s + zc))
+    return list(range(best_s, best_s + zc)), meta
 
 
 def save_nnunet_channel(volume_xyz: np.ndarray, dest: PathLike) -> Path:
@@ -189,14 +237,21 @@ def build_pet_nnunet_channel(
     pet_xyz = sitk_to_xyz(pet_on_ct).astype(np.float32)
 
     crop_source = "mask"
+    match_meta: dict = {}
     if reference_crop_ct is not None:
         ref_path = Path(reference_crop_ct)
         if not ref_path.is_file():
             raise FileNotFoundError(f"Test5 CT crop not found: {ref_path}")
         orig_ct_xyz = nib.load(str(path_ct)).get_fdata().astype(np.float32)
         crop_xyz_ref = nib.load(str(ref_path)).get_fdata().astype(np.float32)
-        slices = slices_matching_test5_crop(orig_ct_xyz, crop_xyz_ref)
+        slices, match_meta = slices_matching_test5_crop(orig_ct_xyz, crop_xyz_ref)
         crop_source = "test5_ct"
+        if match_meta.get("weak_match"):
+            print(
+                f"  warning: weak Test5 CT match "
+                f"(corr={match_meta['corr']:.3f}, method={match_meta['method']}); "
+                "using best z-window so PET shape still matches"
+            )
     else:
         mask_vol = nib.load(str(path_mask)).get_fdata().astype(np.int32)
         slices = hecktor_slices_to_use(mask_vol, slice_expansion=slice_expansion)
@@ -220,6 +275,8 @@ def build_pet_nnunet_channel(
         "slice_start": int(slices[0]),
         "slice_end": int(slices[-1]),
         "crop_source": crop_source,
+        "match_corr": match_meta.get("corr") if reference_crop_ct is not None else None,
+        "match_method": match_meta.get("method") if reference_crop_ct is not None else None,
         "suv_min": float(np.nanmin(cropped)),
         "suv_max": float(np.nanmax(cropped)),
         "suv_mean": float(np.nanmean(cropped)),

@@ -99,8 +99,10 @@ class TestPetAlign(unittest.TestCase):
         rng = np.random.default_rng(0)
         full = rng.random((16, 16, 20)).astype(np.float32)
         crop = full[:, :, 5:13].copy()
-        slices = slices_matching_test5_crop(full, crop)
+        slices, meta = slices_matching_test5_crop(full, crop)
         self.assertEqual(slices, list(range(5, 13)))
+        self.assertGreater(meta["corr"], 0.9)
+        self.assertFalse(meta["weak_match"])
 
     def test_build_pet_uses_reference_crop_when_mask_window_differs(self):
         with TemporaryDirectory() as td:
@@ -132,6 +134,14 @@ class TestPetAlign(unittest.TestCase):
             self.assertEqual(info["n_slices"], 4)
             self.assertEqual(info["crop_source"], "test5_ct")
             self.assertEqual(tuple(nib.load(str(dest)).shape), tuple(crop.shape))
+
+    def test_weak_match_still_returns_crop_length(self):
+        rng = np.random.default_rng(1)
+        full = rng.random((12, 12, 20)).astype(np.float32)
+        crop = rng.random((12, 12, 5)).astype(np.float32)
+        slices, meta = slices_matching_test5_crop(full, crop, min_corr=0.99, strict=False)
+        self.assertEqual(len(slices), 5)
+        self.assertTrue(meta["weak_match"])
 
 
 class TestDatasetHelpers(unittest.TestCase):
