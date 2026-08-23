@@ -59,7 +59,9 @@ Hardlinks Test5 CT `_0000` + labels from **Dataset650** when present, otherwise 
 `${TEST5_WORK_ROOT}/RADHECK_*/cases/{id}/output/` (same transform, PET was never
 copied there). Writes `_0001` from the **original** HECKTOR `{id}__PT.nii.gz`.
 Keeps every HECKTOR row in Test5 `case_map.json` (Tr/Va/Ts). Fails if a mapped
-case has no transform output or no original PET.
+case has no transform output or no original PET. PET z-crop follows the **Test5
+CT volume** (not a fresh tumor window on today's original mask), so cases like
+`CHUP_015` (Test5 28 slices vs mask window 62) still align.
 
 ```bash
 # Creates TEST8_0_ENV.sh immediately (also written at the start of every build)

@@ -305,6 +305,7 @@ def build_one_case(
         paths["path_mask"],
         dst_img1,
         expected_shape=expected,
+        reference_crop_ct=src_img,
     )
     info.update(pet_info)
     return info

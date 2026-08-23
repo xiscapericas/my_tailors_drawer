@@ -61,6 +61,74 @@ def crop_xyz(volume_xyz: np.ndarray, slices: Sequence[int]) -> np.ndarray:
     return volume_xyz[:, :, idx]
 
 
+def _percentile_01(volume: np.ndarray) -> np.ndarray:
+    """Same 1–99 percentile stretch as ``NIfTIHandler.load_nii_image``."""
+    data = np.asarray(volume, dtype=np.float32)
+    finite = data[np.isfinite(data)]
+    if finite.size == 0:
+        return np.nan_to_num(data)
+    low, high = np.percentile(finite, (1, 99))
+    data = np.clip(data, low, high)
+    data = (data - low) / (high - low + 1e-8)
+    return np.nan_to_num(data)
+
+
+def slices_matching_test5_crop(
+    full_xyz: np.ndarray,
+    crop_xyz: np.ndarray,
+    *,
+    min_corr: float = 0.5,
+) -> List[int]:
+    """
+    Contiguous z-window of ``full_xyz`` whose xy/z block matches ``crop_xyz``.
+
+    Test5 HECKTOR CT is a tumor-neighbourhood crop of the original CT. That
+    window can differ from recomputing slices on today's original mask
+    (e.g. CHUP_015: 28 vs 62). Match the saved Test5 volume instead.
+    """
+    if full_xyz.ndim != 3 or crop_xyz.ndim != 3:
+        raise ValueError(f"Expected 3D volumes, got {full_xyz.shape} and {crop_xyz.shape}")
+    if full_xyz.shape[0] != crop_xyz.shape[0] or full_xyz.shape[1] != crop_xyz.shape[1]:
+        raise ValueError(
+            "XY size mismatch between original CT and Test5 crop: "
+            f"{full_xyz.shape[:2]} vs {crop_xyz.shape[:2]}"
+        )
+    zf = int(full_xyz.shape[2])
+    zc = int(crop_xyz.shape[2])
+    if zc == zf:
+        return list(range(zf))
+    if zc > zf:
+        raise ValueError(
+            f"Test5 CT has more slices ({zc}) than original CT ({zf})"
+        )
+
+    step = 8 if min(full_xyz.shape[0], full_xyz.shape[1]) >= 32 else 1
+    full_d = _percentile_01(full_xyz[::step, ::step, :])
+    crop_d = np.asarray(crop_xyz[::step, ::step, :], dtype=np.float32)
+    if float(np.nanmax(crop_d)) > 1.5:
+        crop_d = _percentile_01(crop_d)
+    crop_n = crop_d - float(crop_d.mean())
+    crop_norm = float(np.linalg.norm(crop_n)) + 1e-8
+
+    best_s = 0
+    best_corr = -1.0
+    n_win = zf - zc + 1
+    for s in range(n_win):
+        w = full_d[:, :, s : s + zc]
+        w = w - float(w.mean())
+        corr = float(np.sum(w * crop_n) / ((np.linalg.norm(w) + 1e-8) * crop_norm))
+        if corr > best_corr:
+            best_corr = corr
+            best_s = s
+
+    if best_corr < min_corr:
+        raise ValueError(
+            "Could not locate Test5 CT crop inside original CT "
+            f"(best corr={best_corr:.3f} < {min_corr}, z_full={zf}, z_crop={zc})"
+        )
+    return list(range(best_s, best_s + zc))
+
+
 def save_nnunet_channel(volume_xyz: np.ndarray, dest: PathLike) -> Path:
     """Write a float32 NIfTI with identity affine (Test5 nnUNet convention)."""
     dest = Path(dest)
@@ -98,15 +166,14 @@ def build_pet_nnunet_channel(
     dest_0001: PathLike,
     expected_shape: Optional[Tuple[int, ...]] = None,
     slice_expansion: int = DEFAULT_SLICE_EXPANSION,
+    reference_crop_ct: Optional[PathLike] = None,
 ) -> dict:
     """
-    Resample PET → CT, crop the Test5 tumor window, save ``*_0001.nii.gz``.
+    Resample PET → original CT, crop to the Test5 CT window, save ``*_0001``.
 
-    Parameters
-    ----------
-    expected_shape
-        If set (typically Test5 ``*_0000`` shape), cropped PET must match or
-        this raises. Pass ``None`` to skip the check (Phase 1 explore).
+    If ``reference_crop_ct`` is set (Test5 ``*_0000``), the z-crop is the
+    contiguous window that matches that volume. Otherwise crop from the
+    original mask with ``slice_expansion`` (explore / no Test5 CT).
     """
     path_pet = Path(path_pet)
     path_ct = Path(path_ct)
@@ -118,10 +185,22 @@ def build_pet_nnunet_channel(
     if not path_mask.is_file():
         raise FileNotFoundError(f"Mask not found: {path_mask}")
 
-    mask_vol = nib.load(str(path_mask)).get_fdata().astype(np.int32)
-    slices = hecktor_slices_to_use(mask_vol, slice_expansion=slice_expansion)
     pet_on_ct = resample_pet_to_ct(path_pet, path_ct)
     pet_xyz = sitk_to_xyz(pet_on_ct).astype(np.float32)
+
+    crop_source = "mask"
+    if reference_crop_ct is not None:
+        ref_path = Path(reference_crop_ct)
+        if not ref_path.is_file():
+            raise FileNotFoundError(f"Test5 CT crop not found: {ref_path}")
+        orig_ct_xyz = nib.load(str(path_ct)).get_fdata().astype(np.float32)
+        crop_xyz_ref = nib.load(str(ref_path)).get_fdata().astype(np.float32)
+        slices = slices_matching_test5_crop(orig_ct_xyz, crop_xyz_ref)
+        crop_source = "test5_ct"
+    else:
+        mask_vol = nib.load(str(path_mask)).get_fdata().astype(np.int32)
+        slices = hecktor_slices_to_use(mask_vol, slice_expansion=slice_expansion)
+
     cropped = crop_xyz(pet_xyz, slices)
 
     if expected_shape is not None and tuple(cropped.shape) != tuple(expected_shape):
@@ -129,7 +208,8 @@ def build_pet_nnunet_channel(
             "Cropped PET shape does not match Test5 CT channel:\n"
             f"  PET cropped: {tuple(cropped.shape)}\n"
             f"  expected:    {tuple(expected_shape)}\n"
-            f"  n_slices={len(slices)} ct_full_z={pet_xyz.shape[2]}"
+            f"  n_slices={len(slices)} ct_full_z={pet_xyz.shape[2]} "
+            f"crop_source={crop_source}"
         )
 
     dest = save_nnunet_channel(cropped, dest_0001)
@@ -139,6 +219,7 @@ def build_pet_nnunet_channel(
         "n_slices": len(slices),
         "slice_start": int(slices[0]),
         "slice_end": int(slices[-1]),
+        "crop_source": crop_source,
         "suv_min": float(np.nanmin(cropped)),
         "suv_max": float(np.nanmax(cropped)),
         "suv_mean": float(np.nanmean(cropped)),

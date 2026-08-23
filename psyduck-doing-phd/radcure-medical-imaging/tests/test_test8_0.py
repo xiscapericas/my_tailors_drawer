@@ -15,6 +15,7 @@ from image_processor.io.pet_align import (
     hecktor_slices_to_use,
     resample_pet_to_ct,
     sitk_to_xyz,
+    slices_matching_test5_crop,
 )
 from image_processor.visualization.visualizer import _pet_display_slice, _volume_slice_for_display
 from nnunet_training.prepare_dataset import (
@@ -93,6 +94,44 @@ class TestPetAlign(unittest.TestCase):
                     mask_path,
                     tmp / "out_0001.nii.gz",
                 )
+
+    def test_slices_matching_test5_crop_finds_window(self):
+        rng = np.random.default_rng(0)
+        full = rng.random((16, 16, 20)).astype(np.float32)
+        crop = full[:, :, 5:13].copy()
+        slices = slices_matching_test5_crop(full, crop)
+        self.assertEqual(slices, list(range(5, 13)))
+
+    def test_build_pet_uses_reference_crop_when_mask_window_differs(self):
+        with TemporaryDirectory() as td:
+            tmp = Path(td)
+            ct_path = tmp / "c__CT.nii.gz"
+            pet_path = tmp / "c__PT.nii.gz"
+            mask_path = tmp / "c.nii.gz"
+            ref_path = tmp / "test5_0000.nii.gz"
+            dest = tmp / "out_0001.nii.gz"
+            orig = np.zeros((12, 12, 16), dtype=np.float32)
+            for z in range(16):
+                orig[:, :, z] = float(z + 1)
+            nib.save(nib.Nifti1Image(orig, np.eye(4)), str(ct_path))
+            _write_sitk(pet_path, (12, 12, 16), (1.0, 1.0, 1.0), value=4.0)
+            mask = np.zeros((12, 12, 16), dtype=np.int16)
+            mask[:, :, 2:12] = 1
+            nib.save(nib.Nifti1Image(mask, np.eye(4)), str(mask_path))
+            crop = orig[:, :, 4:8]
+            nib.save(nib.Nifti1Image(crop, np.eye(4)), str(ref_path))
+
+            info = build_pet_nnunet_channel(
+                pet_path,
+                ct_path,
+                mask_path,
+                dest,
+                expected_shape=tuple(crop.shape),
+                reference_crop_ct=ref_path,
+            )
+            self.assertEqual(info["n_slices"], 4)
+            self.assertEqual(info["crop_source"], "test5_ct")
+            self.assertEqual(tuple(nib.load(str(dest)).shape), tuple(crop.shape))
 
 
 class TestDatasetHelpers(unittest.TestCase):
