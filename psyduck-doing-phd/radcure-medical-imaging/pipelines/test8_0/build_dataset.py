@@ -164,6 +164,35 @@ def _replace_dir(path: Path) -> None:
         shutil.rmtree(path)
 
 
+def _count_split_stems(dataset_folder: Path, split: str) -> int:
+    folder = dataset_folder / f"images{split}"
+    if not folder.is_dir():
+        return 0
+    return len(list(folder.glob("*_0000.nii.gz")))
+
+
+def finalize_dataset_json(dataset_folder: Path, organ_dictionary_path: Path) -> int:
+    """Write dataset.json from files already in Dataset650 (repair after a failed finish)."""
+    n_tr = _count_split_stems(dataset_folder, "Tr")
+    img_tr = dataset_folder / "imagesTr"
+    n_pet = len(list(img_tr.glob("*_0001.nii.gz"))) if img_tr.is_dir() else 0
+    if n_tr == 0:
+        raise FileNotFoundError(
+            f"No *_0000.nii.gz in {dataset_folder}/imagesTr — run the full build first."
+        )
+    if n_pet != n_tr:
+        print(
+            f"WARNING: imagesTr CT={n_tr} PET={n_pet} (should match). "
+            "Some cases may lack _0001."
+        )
+    _write_dataset_json(dataset_folder, organ_dictionary_path, num_training=n_tr)
+    print(
+        f"Finalize: Tr={n_tr} Va={_count_split_stems(dataset_folder, 'Va')} "
+        f"Ts={_count_split_stems(dataset_folder, 'Ts')} PET_Tr={n_pet}"
+    )
+    return n_tr
+
+
 def _write_dataset_json(
     dataset_folder: Path,
     organ_dictionary_path: Path,
@@ -299,12 +328,35 @@ def main() -> None:
         action="store_true",
         help="Only write TEST8_0_ENV.sh under the work root, then exit.",
     )
+    parser.add_argument(
+        "--finalize-only",
+        action="store_true",
+        help="Write dataset.json from existing Dataset650 images (no rebuild).",
+    )
     args = parser.parse_args()
 
     work = Path(args.work_root).expanduser().resolve()
     work.mkdir(parents=True, exist_ok=True)
     write_test8_0_env_sh(work)
     if args.write_env_only:
+        return
+    if args.finalize_only:
+        dst650 = work / "Dataset650_TotalSegmentator"
+        organ_dst = work / "organ_dictionary_test5.json"
+        if not organ_dst.is_file():
+            test5_work = (
+                Path(args.test5_work_root).expanduser().resolve()
+                if args.test5_work_root.strip()
+                else test5_work_root().resolve()
+            )
+            organ_src = resolve_test5_organ_dictionary(
+                test5_work if test5_work.is_dir() else work,
+                explicit=args.organ_dictionary,
+            )
+            shutil.copy2(organ_src, organ_dst)
+        n_tr = finalize_dataset_json(dst650, organ_dst)
+        write_test8_0_env_sh(work, organ=organ_dst)
+        print(f"dataset.json ready (numTraining={n_tr})")
         return
     src650 = Path(args.dataset650).expanduser().resolve()
     if not src650.is_dir():
@@ -386,12 +438,7 @@ def main() -> None:
 
     print(f"\nBuilt={len(built)} failed={len(failed)}")
 
-    if failed:
-        raise RuntimeError(
-            f"{len(failed)} HECKTOR case(s) failed (missing PET or shape mismatch).\n"
-            + "\n".join(f"  {s}: {m}" for s, m in failed[:20])
-        )
-    if not built:
+    if not built and not args.dry_run:
         raise RuntimeError(
             "No HECKTOR cases built. Need case_map HECKTOR rows plus "
             "Dataset650 and/or RADHECK_*/cases/*/output/."
@@ -401,7 +448,7 @@ def main() -> None:
     n_ts = sum(1 for b in built if b.get("split") == "Ts")
     n_va = sum(1 for b in built if b.get("split") == "Va")
 
-    if not args.dry_run:
+    if not args.dry_run and built:
         organ_src = resolve_test5_organ_dictionary(
             test5_work if test5_work.is_dir() else work,
             explicit=args.organ_dictionary,
@@ -434,6 +481,13 @@ def main() -> None:
         os.environ["ORGAN_DICTIONARY_PATH"] = str(organ_dst)
         pin_test8_0_env(work)
         write_test8_0_env_sh(work, organ=organ_dst)
+
+    if failed:
+        raise RuntimeError(
+            f"{len(failed)} HECKTOR case(s) failed (missing PET or shape mismatch). "
+            f"dataset.json was still written for the {len(built)} successful case(s).\n"
+            + "\n".join(f"  {s}: {m}" for s, m in failed[:20])
+        )
 
     status = {
         "dataset650": str(dst650),
