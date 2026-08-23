@@ -62,11 +62,14 @@ Keeps every HECKTOR row in Test5 `case_map.json` (Tr/Va/Ts). Fails if a mapped
 case has no transform output or no original PET.
 
 ```bash
+# Creates TEST8_0_ENV.sh immediately (also written at the start of every build)
+python -m pipelines.test8_0.build_dataset --write-env-only
+source ${TEST8_0_WORK_ROOT}/TEST8_0_ENV.sh
+
 python -m pipelines.test8_0.build_dataset --dry-run
 python -m pipelines.test8_0.build_dataset --max-cases 2   # smoke
 python -m pipelines.test8_0.build_dataset
-
-source ${TEST8_0_WORK_ROOT}/TEST8_0_ENV.sh
+source ${TEST8_0_WORK_ROOT}/TEST8_0_ENV.sh   # refresh after full build (organ dict path)
 
 echo "Tr=$(ls ${TEST8_0_WORK_ROOT}/Dataset650_TotalSegmentator/imagesTr/*_0000.nii.gz | wc -l)"
 echo "PET=$(ls ${TEST8_0_WORK_ROOT}/Dataset650_TotalSegmentator/imagesTr/*_0001.nii.gz | wc -l)"

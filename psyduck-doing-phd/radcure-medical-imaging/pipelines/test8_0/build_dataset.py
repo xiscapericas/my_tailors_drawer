@@ -41,6 +41,7 @@ from pipelines.test8_0.paths import (
     test5_dataset650,
     test5_work_root,
     work_root,
+    write_test8_0_env_sh,
 )
 
 
@@ -293,10 +294,18 @@ def main() -> None:
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--max-cases", type=int, default=0, help="0 = all")
+    parser.add_argument(
+        "--write-env-only",
+        action="store_true",
+        help="Only write TEST8_0_ENV.sh under the work root, then exit.",
+    )
     args = parser.parse_args()
 
     work = Path(args.work_root).expanduser().resolve()
     work.mkdir(parents=True, exist_ok=True)
+    write_test8_0_env_sh(work)
+    if args.write_env_only:
+        return
     src650 = Path(args.dataset650).expanduser().resolve()
     if not src650.is_dir():
         raise FileNotFoundError(
@@ -424,27 +433,7 @@ def main() -> None:
 
         os.environ["ORGAN_DICTIONARY_PATH"] = str(organ_dst)
         pin_test8_0_env(work)
-
-        env_sh = work / "TEST8_0_ENV.sh"
-        env_sh.write_text(
-            "\n".join(
-                [
-                    f"export TEST8_0_WORK_ROOT={work}",
-                    f"export DATASET_FOLDER={dst650}",
-                    f"export NNUNET_RETRAIN_PATH={work / 'nnunet_retrain'}",
-                    f"export ORGAN_DICTIONARY_PATH={organ_dst}",
-                    "export DATASET_ID=650",
-                    "export NNUNET_TRAINER=nnUNetTrainer_700epochs_NoMirroring",
-                    "export NNUNET_CONFIGURATION=3d_fullres",
-                    "export NNUNET_FOLD=0",
-                    "export NNUNET_USE_LOCAL_PREPROCESS=1",
-                    "export nnUNet_compile=false",
-                    "unset NNUNET_PREPROCESSED_PATH",
-                    "",
-                ]
-            )
-        )
-        print(f"Wrote {env_sh}")
+        write_test8_0_env_sh(work, organ=organ_dst)
 
     status = {
         "dataset650": str(dst650),

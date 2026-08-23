@@ -158,3 +158,31 @@ def pin_test8_0_env(work: Path | None = None) -> dict:
         "dataset": dataset,
         "organ": organ,
     }
+
+
+def write_test8_0_env_sh(work: Path | None = None, organ: Path | None = None) -> Path:
+    """Write TEST8_0_ENV.sh so train/eval can ``source`` it before build finishes."""
+    pinned = pin_test8_0_env(work)
+    root = pinned["work"]
+    organ_path = organ or pinned["organ"] or (root / "organ_dictionary_test5.json")
+    env_sh = root / "TEST8_0_ENV.sh"
+    env_sh.write_text(
+        "\n".join(
+            [
+                f"export TEST8_0_WORK_ROOT={root}",
+                f"export DATASET_FOLDER={root / 'Dataset650_TotalSegmentator'}",
+                f"export NNUNET_RETRAIN_PATH={pinned['retrain']}",
+                f"export ORGAN_DICTIONARY_PATH={organ_path}",
+                "export DATASET_ID=650",
+                "export NNUNET_TRAINER=nnUNetTrainer_700epochs_NoMirroring",
+                "export NNUNET_CONFIGURATION=3d_fullres",
+                "export NNUNET_FOLD=0",
+                "export NNUNET_USE_LOCAL_PREPROCESS=1",
+                "export nnUNet_compile=false",
+                "unset NNUNET_PREPROCESSED_PATH",
+                "",
+            ]
+        )
+    )
+    print(f"Wrote {env_sh}")
+    return env_sh
