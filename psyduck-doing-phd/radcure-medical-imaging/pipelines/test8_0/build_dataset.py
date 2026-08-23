@@ -181,9 +181,10 @@ def finalize_dataset_json(dataset_folder: Path, organ_dictionary_path: Path) -> 
             f"No *_0000.nii.gz in {dataset_folder}/imagesTr — run the full build first."
         )
     if n_pet != n_tr:
-        print(
-            f"WARNING: imagesTr CT={n_tr} PET={n_pet} (should match). "
-            "Some cases may lack _0001."
+        raise ValueError(
+            f"imagesTr CT={n_tr} PET={n_pet} (must match). "
+            "Some cases lack _0001. Run: python -m pipelines.test8_0.verify_channels "
+            "then python -m pipelines.test8_0.build_dataset --only-missing-pet"
         )
     _write_dataset_json(dataset_folder, organ_dictionary_path, num_training=n_tr)
     print(
@@ -244,6 +245,7 @@ def build_one_case(
     link_mode: str,
     dry_run: bool,
     index: Dict[str, Tuple[str, Path]],
+    skip_if_pet_exists: bool = False,
 ) -> dict:
     split = row.get("split") or "Tr"
     case_id = row["case_id"]
@@ -259,6 +261,15 @@ def build_one_case(
     dst_img0 = dst650 / f"images{dest_split}" / f"{dest_stem}_0000.nii.gz"
     dst_img1 = dst650 / f"images{dest_split}" / f"{dest_stem}_0001.nii.gz"
     dst_lbl = dst650 / f"labels{dest_split}" / f"{dest_stem}.nii.gz"
+    if skip_if_pet_exists and dst_img0.is_file() and dst_img1.is_file() and dst_lbl.is_file():
+        return {
+            "stem": dest_stem,
+            "map_stem": stem,
+            "case_id": case_id,
+            "split": dest_split,
+            "ct_source": ct_source,
+            "skipped": "pet_exists",
+        }
 
     # PET always from original HECKTOR zip (RADHECK cases/ did not copy __PT)
     pet_dir = resolve_hecktor_case_dir(case_id, sources)
@@ -332,6 +343,11 @@ def main() -> None:
         "--finalize-only",
         action="store_true",
         help="Write dataset.json from existing Dataset650 images (no rebuild).",
+    )
+    parser.add_argument(
+        "--only-missing-pet",
+        action="store_true",
+        help="Skip cases that already have images{split}/{stem}_0001.nii.gz.",
     )
     args = parser.parse_args()
 
@@ -433,6 +449,7 @@ def main() -> None:
                     link_mode=args.link,
                     dry_run=args.dry_run,
                     index=index,
+                    skip_if_pet_exists=args.only_missing_pet,
                 )
             )
             print(f"  ok {row.get('split')} {stem} {row.get('case_id')}")

@@ -80,9 +80,20 @@ copy PET. A full (non-dry-run) build is required before `prepare` / `plan` / `tr
 echo "Tr=$(ls ${TEST8_0_WORK_ROOT}/Dataset650_TotalSegmentator/imagesTr/*_0000.nii.gz | wc -l)"
 echo "PET=$(ls ${TEST8_0_WORK_ROOT}/Dataset650_TotalSegmentator/imagesTr/*_0001.nii.gz | wc -l)"
 echo "Ts=$(ls ${TEST8_0_WORK_ROOT}/Dataset650_TotalSegmentator/imagesTs/*_0000.nii.gz | wc -l)"
+python -m pipelines.test8_0.verify_channels --dataset-folder ${TEST8_0_WORK_ROOT}/Dataset650_TotalSegmentator
 ```
 
 `dataset.json` must list `"channel_names": {"0": "CT", "1": "PET"}`.
+**CT and PET counts must match.** If they do not, nnUNet fingerprint extraction
+finishes the progress bar then raises `IndexError: list index out of range`
+(`foreground_intensities_per_channel`). Repair:
+
+```bash
+python -m pipelines.test8_0.verify_channels
+python -m pipelines.test8_0.build_dataset --only-missing-pet
+python -m pipelines.test8_0.build_dataset --finalize-only
+python train_nnunet.py --step plan
+```
 
 ---
 

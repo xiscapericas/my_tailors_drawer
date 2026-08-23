@@ -21,6 +21,7 @@ except ImportError:
 from nnunet_training.config import TrainingConfig
 from nnunet_training.install_trainer_variants import ensure_trainer_installed
 from nnunet_training.splits_utils import ensure_splits_final
+from nnunet_training.prepare_dataset import assert_nnunet_channels_complete
 
 
 def add_nnunet_to_path(nnunet_path: str):
@@ -47,6 +48,9 @@ def plan_and_preprocess(config: TrainingConfig, log_file: str = None):
     print(f"  Configuration: {config.configuration}")
     print(f"  Number of processes: {config.num_processes}")
     print(f"  Log file: {log_file}")
+
+    paths = config.get_dataset_paths()
+    assert_nnunet_channels_complete(paths["imagesTr"])
     
     cmd = [
         'nnUNetv2_plan_and_preprocess',

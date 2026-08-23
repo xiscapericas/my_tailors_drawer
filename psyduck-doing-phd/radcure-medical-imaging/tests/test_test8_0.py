@@ -17,7 +17,11 @@ from image_processor.io.pet_align import (
     sitk_to_xyz,
 )
 from image_processor.visualization.visualizer import _pet_display_slice, _volume_slice_for_display
-from nnunet_training.prepare_dataset import _channel_names_from_images, _count_training_cases
+from nnunet_training.prepare_dataset import (
+    _channel_names_from_images,
+    _count_training_cases,
+    find_incomplete_nnunet_channel_cases,
+)
 from pipelines.test8_0.build_dataset import hecktor_rows_from_case_map
 
 
@@ -104,6 +108,16 @@ class TestDatasetHelpers(unittest.TestCase):
             self.assertEqual(
                 _channel_names_from_images(str(images)), {0: "CT", 1: "PET"}
             )
+
+    def test_incomplete_when_one_case_lacks_pet(self):
+        with TemporaryDirectory() as td:
+            images = Path(td) / "imagesTr"
+            images.mkdir()
+            (images / "case_a_0000.nii.gz").write_bytes(b"x")
+            (images / "case_a_0001.nii.gz").write_bytes(b"x")
+            (images / "case_b_0000.nii.gz").write_bytes(b"x")
+            missing = find_incomplete_nnunet_channel_cases(str(images))
+            self.assertEqual(missing, [("case_b", [1])])
 
     def test_hecktor_rows_drop_radcure(self):
         case_map = {

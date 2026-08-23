@@ -72,6 +72,63 @@ def _channel_names_from_images(imagesTr_dir: str) -> dict:
     return {i: default.get(i, f"channel_{i}") for i in sorted(channels)}
 
 
+def _case_channels_in_images_dir(images_dir: str) -> dict:
+    """Map nnUNet case stem → set of channel indices present (``_0000``, ``_0001``, …)."""
+    by_stem = {}
+    if not os.path.isdir(images_dir):
+        return by_stem
+    for f in os.listdir(images_dir):
+        ch = _nnunet_channel_index(f)
+        if ch is None:
+            continue
+        stem = f[: -len(f"_{ch:04d}.nii.gz")]
+        by_stem.setdefault(stem, set()).add(ch)
+    return by_stem
+
+
+def find_incomplete_nnunet_channel_cases(
+    images_dir: str,
+    required_channels=None,
+):
+    """
+    Stems that lack a channel file every other case (or ``required_channels``) has.
+
+    nnUNet fingerprint extraction IndexErrors if some cases have CT-only and
+    others have CT+PET (``r[2][i]`` length differs).
+    """
+    by_stem = _case_channels_in_images_dir(images_dir)
+    if not by_stem:
+        return []
+    if required_channels is None:
+        required = sorted(set().union(*by_stem.values()))
+    else:
+        required = list(required_channels)
+    missing = []
+    for stem in sorted(by_stem):
+        miss = [c for c in required if c not in by_stem[stem]]
+        if miss:
+            missing.append((stem, miss))
+    return missing
+
+
+def assert_nnunet_channels_complete(images_dir: str, required_channels=None) -> None:
+    missing = find_incomplete_nnunet_channel_cases(images_dir, required_channels)
+    if not missing:
+        return
+    n = len(missing)
+    preview = "\n".join(
+        f"  {stem}: missing " + ", ".join(f"_{c:04d}" for c in miss)
+        for stem, miss in missing[:25]
+    )
+    more = f"\n  … and {n - 25} more" if n > 25 else ""
+    raise ValueError(
+        f"{n} case(s) in {images_dir} do not have every channel file "
+        f"(this causes nnUNet fingerprint IndexError).\n{preview}{more}\n"
+        "For Test 8.0: python -m pipelines.test8_0.verify_channels\n"
+        "Then: python -m pipelines.test8_0.build_dataset --only-missing-pet"
+    )
+
+
 def generate_dataset_json(config: TrainingConfig):
     """
     Generate dataset.json file for nnUNet.
@@ -95,6 +152,7 @@ def generate_dataset_json(config: TrainingConfig):
         raise ValueError(f"No training cases found in {imagesTr_dir}")
 
     channel_names = _channel_names_from_images(imagesTr_dir)
+    assert_nnunet_channels_complete(imagesTr_dir)
     
     print(f"Generating dataset.json for {config.dataset_name}...")
     print(f"  Training cases: {num_training_cases}")
