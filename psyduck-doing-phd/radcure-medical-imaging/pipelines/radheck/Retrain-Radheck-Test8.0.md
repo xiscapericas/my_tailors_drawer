@@ -71,8 +71,11 @@ python -m pipelines.test8_0.build_dataset --max-cases 2   # smoke
 python -m pipelines.test8_0.build_dataset
 source ${TEST8_0_WORK_ROOT}/TEST8_0_ENV.sh   # refresh after full build (organ dict path)
 
-# If Dataset650/images* already exist but dataset.json is missing (failed finish):
-# python -m pipelines.test8_0.build_dataset --finalize-only
+`imagesVa` is **empty on purpose** (same as Test5). nnUNet validation is **fold 0**
+inside `imagesTr` (`splits_final.json`), not a separate Va folder.
+
+`--dry-run` only writes `STATUS.json`; it does **not** create `dataset.json` or
+copy PET. A full (non-dry-run) build is required before `prepare` / `plan` / `train`.
 
 echo "Tr=$(ls ${TEST8_0_WORK_ROOT}/Dataset650_TotalSegmentator/imagesTr/*_0000.nii.gz | wc -l)"
 echo "PET=$(ls ${TEST8_0_WORK_ROOT}/Dataset650_TotalSegmentator/imagesTr/*_0001.nii.gz | wc -l)"

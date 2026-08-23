@@ -406,6 +406,10 @@ def main() -> None:
         "PET: original {id}__PT.nii.gz (not copied into RADHECK cases). "
         "Split membership from case_map.json."
     )
+    print(
+        "imagesVa is expected to be empty (same as Test5). nnUNet validation "
+        "is fold 0 inside imagesTr via splits_final.json, not a Va folder."
+    )
 
     dst650 = work / "Dataset650_TotalSegmentator"
     if not args.dry_run:
@@ -503,6 +507,10 @@ def main() -> None:
         "channels": {"0": "CT", "1": "PET"},
         "reprocess_totalsegmentator": False,
         "reuse_test5_split_membership": True,
+        "imagesVa_note": (
+            "Empty by design (Test5). nnUNet val = fold 0 of imagesTr "
+            "(splits_final.json), not imagesVa."
+        ),
     }
     with open(work / "STATUS.json", "w") as f:
         json.dump(status, f, indent=2)
