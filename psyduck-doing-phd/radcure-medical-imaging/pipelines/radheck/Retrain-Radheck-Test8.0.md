@@ -125,6 +125,11 @@ python train_nnunet.py --step evaluation_visualization
 Dice CSV: `${LOG_DIR}/evaluation_d650.csv`.  
 PDFs: `${DATASET_FOLDER}/labelsTs_dice_and_viz/visualizations/` (CT | PET | GT | pred).
 
+3D Slicer: `${DATASET_FOLDER}/labelsTs_dice_and_viz/predictions_nifti/{case}.nii.gz`
+(full multiclass mask, same voxel grid as `{case}_0000` CT and `{case}_0001` PET;
+integer IDs match `dataset.json`, copied to `predictions_nifti/dataset_labels.json`).
+Load CT, PET, then the prediction as a labelmap / segmentation.
+
 Compare GTVp Dice only to the **Test5 HECKTOR** test subset, not to Test5 RADCURE Ts.
 
 ---

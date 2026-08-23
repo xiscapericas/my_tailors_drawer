@@ -25,6 +25,9 @@ except ImportError:
     pass
 
 from nnunet_training.config import TrainingConfig
+from image_processor.io.slicer_prediction_export import (
+    export_test_set_predictions_for_slicer,
+)
 
 from tqdm import tqdm
 from p_tqdm import p_map
@@ -51,6 +54,27 @@ def get_predictions_output_dir(config: TrainingConfig) -> str:
     if config.eval_output_dir:
         return os.path.join(config.eval_output_dir, "labelsTs_predicted")
     return os.path.join(config.dataset_folder, "labelsTs_predicted")
+
+
+def get_slicer_predictions_output_dir(config: TrainingConfig) -> str:
+    """Multiclass prediction NIfTIs aligned to CT/PET for 3D Slicer."""
+    return os.path.join(get_eval_viz_output_dir(config), "predictions_nifti")
+
+
+def export_predictions_for_slicer(config: TrainingConfig, pred_dir: str) -> str:
+    """Copy nnUNet masks onto the CT grid; integers match dataset.json labels."""
+    paths = config.get_dataset_paths()
+    dest = Path(get_slicer_predictions_output_dir(config))
+    dataset_json = Path(config.dataset_folder) / "dataset.json"
+    n = export_test_set_predictions_for_slicer(
+        images_ts=paths["imagesTs"],
+        pred_dir=pred_dir,
+        dest_dir=dest,
+        dataset_json_path=dataset_json,
+    )
+    print(f"✓ 3D Slicer prediction NIfTIs: {n} case(s) → {dest}")
+    print(f"  Label IDs: {dest / 'dataset_labels.json'} (from {dataset_json})")
+    return str(dest)
 
 
 def get_eval_viz_output_dir(config: TrainingConfig) -> str:
@@ -338,6 +362,11 @@ def evaluate_predictions(config: TrainingConfig, pred_dir: str):
     results_file = os.path.join(config.log_dir, f'evaluation_d{config.dataset_id}.csv')
     res_df.to_csv(results_file, index=False)
     print(f"\n✓ Detailed results saved to: {results_file}")
+
+    try:
+        export_predictions_for_slicer(config, str(pred_path))
+    except Exception as exc:
+        print(f"⚠️  3D Slicer NIfTI export skipped: {exc}")
     
     return res_df
 
@@ -377,7 +406,8 @@ def evaluation_visualization(config: TrainingConfig):
     This function:
     1. Calculates Dice scores slice-by-slice per organ for each test case
     2. Creates visualization PDFs comparing GT vs predicted masks
-    3. Saves all results in labelsTs_dice_and_viz folder
+    3. Exports full multiclass prediction NIfTIs aligned to CT/PET (3D Slicer)
+    4. Saves all results in labelsTs_dice_and_viz folder
     
     Parameters
     ----------
@@ -417,6 +447,12 @@ def evaluation_visualization(config: TrainingConfig):
     dice_output_dir.mkdir(exist_ok=True)
     surface_dice_output_dir.mkdir(exist_ok=True)
     viz_output_dir.mkdir(exist_ok=True)
+    slicer_pred_dir = Path(get_slicer_predictions_output_dir(config))
+    slicer_pred_dir.mkdir(exist_ok=True)
+    try:
+        export_predictions_for_slicer(config, str(pred_dir))
+    except Exception as exc:
+        print(f"⚠️  3D Slicer NIfTI export skipped: {exc}")
     
     # Get all test cases
     test_cases = [x.stem.split(".")[0] for x in labels_ts_dir.glob("*.nii.gz")]
@@ -513,6 +549,7 @@ def evaluation_visualization(config: TrainingConfig):
     print(f"  - Dice scores: {dice_output_dir}")
     print(f"  - Surface Dice scores: {surface_dice_output_dir}")
     print(f"  - Visualizations: {viz_output_dir}")
+    print(f"  - Slicer prediction NIfTIs: {slicer_pred_dir}")
     print("=" * 70)
     
     return output_dir

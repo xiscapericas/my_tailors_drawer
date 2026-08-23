@@ -92,6 +92,7 @@ This will:
 - Run predictions on test set
 - Compute Dice and Surface Dice metrics
 - Save detailed results to CSV
+- Export 3D Slicer NIfTIs (`labelsTs_dice_and_viz/predictions_nifti/`) aligned to CT/PET, with `dataset.json` label IDs
 
 ### Option 3: Run modules directly
 
@@ -131,6 +132,7 @@ python -m nnunet_training.predict_and_evaluate
 - **Model**: Saved in `{NNUNET_RETRAIN_PATH}/nnUNet_results/`
 
 - **Predictions**: Saved in `{DATASET_FOLDER}/labelsTs_predicted/`
+- **Slicer NIfTIs**: `{DATASET_FOLDER}/labelsTs_dice_and_viz/predictions_nifti/` (CT-aligned multiclass masks)
 
 ## Notes
 

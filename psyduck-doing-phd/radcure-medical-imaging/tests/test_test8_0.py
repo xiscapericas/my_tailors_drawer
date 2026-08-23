@@ -16,7 +16,7 @@ from image_processor.io.pet_align import (
     resample_pet_to_ct,
     sitk_to_xyz,
 )
-from image_processor.visualization.visualizer import _pet_display_slice
+from image_processor.visualization.visualizer import _pet_display_slice, _volume_slice_for_display
 from nnunet_training.prepare_dataset import _channel_names_from_images, _count_training_cases
 from pipelines.test8_0.build_dataset import hecktor_rows_from_case_map
 
@@ -191,6 +191,14 @@ class TestPetDisplay(unittest.TestCase):
         self.assertLess(vmax, 1000.0)
         self.assertLessEqual(shown.max(), vmax)
         self.assertGreaterEqual(shown.min(), 0.0)
+
+
+class TestDisplayOrientation(unittest.TestCase):
+    def test_display_is_180_from_legacy_rot90(self):
+        vol = np.arange(24, dtype=np.int32).reshape(2, 3, 4)
+        legacy = np.rot90(vol[:, :, 1])
+        shown = _volume_slice_for_display(vol, 1, axis=2)
+        np.testing.assert_array_equal(shown, np.rot90(legacy, k=2))
 
 
 if __name__ == "__main__":

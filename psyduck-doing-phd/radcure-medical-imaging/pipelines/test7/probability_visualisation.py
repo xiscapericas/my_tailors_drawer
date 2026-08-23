@@ -39,7 +39,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from image_processor.visualization.visualizer import MedicalImageVisualizer, _get_cmap
+from image_processor.visualization.visualizer import (
+    MedicalImageVisualizer,
+    _get_cmap,
+    _volume_slice_for_display,
+)
 from pipelines.test7.paths import (
     load_organ_dict,
     pin_test7_env,
@@ -78,13 +82,7 @@ def _load_nifti(path: Path) -> np.ndarray:
 
 
 def _get_slice(vol: np.ndarray, idx: int, axis: int) -> np.ndarray:
-    if axis == 0:
-        sl = vol[idx, :, :]
-    elif axis == 1:
-        sl = vol[:, idx, :]
-    else:
-        sl = vol[:, :, idx]
-    return np.rot90(sl)
+    return _volume_slice_for_display(vol, idx, axis)
 
 
 def _ct_to_rgb(ct_slice: np.ndarray) -> np.ndarray:

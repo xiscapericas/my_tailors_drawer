@@ -48,6 +48,25 @@ def _pet_display_slice(pet_slice: np.ndarray) -> Tuple[np.ndarray, float]:
     return np.clip(pet_slice, 0.0, vmax), vmax
 
 
+def _volume_slice_for_display(vol: np.ndarray, idx: int, axis: int) -> np.ndarray:
+    """
+    Extract a 2D slice and orient it for PDFs.
+
+    Previously ``np.rot90(sl)`` (90° CCW). Add 180° so the previous north
+    edge is south, matching 3D Slicer axial view for side-by-side comparison.
+    Combined: ``np.rot90(sl, k=3)``.
+    """
+    if axis == 0:
+        sl = vol[idx, :, :]
+    elif axis == 1:
+        sl = vol[:, idx, :]
+    elif axis == 2:
+        sl = vol[:, :, idx]
+    else:
+        raise ValueError("axis must be 0, 1, or 2")
+    return np.rot90(sl, k=3)
+
+
 class MedicalImageVisualizer:
     """Visualization utilities for medical images."""
 
@@ -187,15 +206,7 @@ class MedicalImageVisualizer:
             axes = [axes]
         
         def get_slice(vol, idx, axis):
-            if axis == 0:
-                sl = vol[idx, :, :]
-            elif axis == 1:
-                sl = vol[:, idx, :]
-            elif axis == 2:
-                sl = vol[:, :, idx]
-            else:
-                raise ValueError("axis must be 0, 1, or 2")
-            return np.rot90(sl)
+            return _volume_slice_for_display(vol, idx, axis)
         
         for idx, slice_idx in enumerate(slice_indices):
             if slice_idx >= ct_array.shape[axis]:
@@ -322,15 +333,7 @@ class MedicalImageVisualizer:
                 print(f"⚠️ Warning: Invalid slice indices {invalid} (valid range: 0-{num_slices-1})")
         
         def get_slice(vol, idx, axis):
-            if axis == 0:
-                sl = vol[idx, :, :]
-            elif axis == 1:
-                sl = vol[:, idx, :]
-            elif axis == 2:
-                sl = vol[:, :, idx]
-            else:
-                raise ValueError("axis must be 0, 1, or 2")
-            return np.rot90(sl)
+            return _volume_slice_for_display(vol, idx, axis)
         
         pdf = PdfPages(save_pdf_path) if save_pdf_path else None
         
@@ -581,15 +584,7 @@ class MedicalImageVisualizer:
                       f"(valid range: 0-{num_slices-1})")
         
         def get_slice(vol, idx, axis):
-            if axis == 0:
-                sl = vol[idx, :, :]
-            elif axis == 1:
-                sl = vol[:, idx, :]
-            elif axis == 2:
-                sl = vol[:, :, idx]
-            else:
-                raise ValueError("axis must be 0, 1, or 2")
-            return np.rot90(sl)
+            return _volume_slice_for_display(vol, idx, axis)
         
         # Get unique labels present in either mask (for overall legend - will be filtered per slice)
         unique_labels_gt = set(np.unique(gt_mask_vol).astype(int))
