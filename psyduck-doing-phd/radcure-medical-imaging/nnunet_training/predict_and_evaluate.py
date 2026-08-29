@@ -476,6 +476,25 @@ def main():
     print("=" * 70)
 
 
+def main_eval_only():
+    """Score existing ``labelsTs_predicted`` NIfTIs (no nnUNet predict)."""
+    print("=" * 70)
+    print("nnUNet Evaluation (existing predictions)")
+    print("=" * 70)
+
+    config = TrainingConfig()
+    add_nnunet_to_path(config.nnunet_path)
+    config.setup_nnunet_environment()
+
+    pred_dir = get_predictions_output_dir(config)
+    print(f"Using predictions: {pred_dir}")
+    evaluate_predictions(config, pred_dir)
+
+    print("\n" + "=" * 70)
+    print("Evaluation complete!")
+    print("=" * 70)
+
+
 def evaluation_visualization(config: TrainingConfig):
     """
     Generate Dice score calculations and visualization comparisons for all test cases.

@@ -56,6 +56,11 @@ def main():
         action='store_true',
         help='Symlink DATASET_FOLDER into nnUNet_raw instead of copying (also NNUNET_LINK_RAW=1)',
     )
+    parser.add_argument(
+        '--eval-only',
+        action='store_true',
+        help='With --step evaluate: score existing labelsTs_predicted (skip nnUNet predict)',
+    )
 
     args = parser.parse_args()
     if args.link_raw:
@@ -119,7 +124,14 @@ def main():
         print(">>> STEP 4: Prediction and Evaluation")
         print("-" * 70)
         try:
-            predict_and_evaluate.main()
+            if args.eval_only:
+                if args.step == 'all':
+                    print("⚠️  --eval-only ignored with --step all (still predicts)")
+                    predict_and_evaluate.main()
+                else:
+                    predict_and_evaluate.main_eval_only()
+            else:
+                predict_and_evaluate.main()
         except Exception as e:
             print(f"✗ Evaluation failed: {e}")
             sys.exit(1)
