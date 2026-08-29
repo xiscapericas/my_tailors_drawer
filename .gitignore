@@ -1,6 +1,7 @@
 *.jpg
 *.jpeg
 *.png
+!psyduck-doing-phd/assets/hi_psy_coffee.png
 *.gif
 *.Rhistory
 *.RData
