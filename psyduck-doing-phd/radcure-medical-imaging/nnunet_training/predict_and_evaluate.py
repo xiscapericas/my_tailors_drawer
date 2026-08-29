@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 from functools import partial
-from typing import Dict, List
+from typing import Dict, List, Optional
 import numpy as np
 import nibabel as nib
 import pandas as pd
@@ -27,6 +27,10 @@ except ImportError:
 from nnunet_training.config import TrainingConfig
 from image_processor.io.slicer_prediction_export import (
     export_test_set_predictions_for_slicer,
+)
+from image_processor.evaluation.dsc_agg import (
+    binary_confusion_counts,
+    dsc_agg_from_totals,
 )
 
 from tqdm import tqdm
@@ -245,8 +249,74 @@ def calc_metrics(
             # Ground truth doesn't exist (organ not in image)
             r[f"dice-{roi_name}"] = np.nan
             r[f"surface_dice_3-{roi_name}"] = np.nan
+
+        # HECKTOR DSCagg counts: same binary masks as Dice (label == class index).
+        # Count every subject, including GT-empty (per-patient Dice is NaN).
+        tp, fp, fn = binary_confusion_counts(pred, gt)
+        r[f"tp-{roi_name}"] = tp
+        r[f"fp-{roi_name}"] = fp
+        r[f"fn-{roi_name}"] = fn
     
     return r
+
+
+def _gtvp_label_index(config: TrainingConfig) -> Optional[int]:
+    """GTVp integer from the organ dictionary / dataset labels (not assumed)."""
+    raw = config.labels.get("GTVp")
+    if raw is None:
+        return None
+    if isinstance(raw, (list, tuple)):
+        return int(raw[0]) if raw else None
+    return int(raw)
+
+
+def _print_gtvp_test_summary(res_df: pd.DataFrame, gtvp_name: str = "GTVp") -> None:
+    """Mean/std of per-patient Dice plus HECKTOR DSCagg (cohort voxel totals)."""
+    dice_col = f"dice-{gtvp_name}"
+    tp_key, fp_key, fn_key = f"tp-{gtvp_name}", f"fp-{gtvp_name}", f"fn-{gtvp_name}"
+    if dice_col not in res_df.columns or tp_key not in res_df.columns:
+        print("⚠️  GTVp columns missing; skip DSCagg summary")
+        return
+
+    n_subjects = len(res_df)
+    patient_dice = res_df[dice_col].dropna()
+    mean_dice = float(patient_dice.mean()) if len(patient_dice) else float("nan")
+    std_dice = float(patient_dice.std(ddof=1)) if len(patient_dice) > 1 else float("nan")
+
+    # Reset cohort totals to zero, then sum every test subject (including GT-empty).
+    tp_total = np.int64(0)
+    fp_total = np.int64(0)
+    fn_total = np.int64(0)
+    tp_total = tp_total + np.int64(np.nansum(res_df[tp_key].to_numpy(dtype=np.int64)))
+    fp_total = fp_total + np.int64(np.nansum(res_df[fp_key].to_numpy(dtype=np.int64)))
+    fn_total = fn_total + np.int64(np.nansum(res_df[fn_key].to_numpy(dtype=np.int64)))
+    dsc_agg = dsc_agg_from_totals(tp_total, fp_total, fn_total)
+
+    print("\n---------------- Test segmentation results ----------------")
+    print(f"Number of subjects: {n_subjects}")
+    print(f"Mean GTVp Dice: {mean_dice:.4f}")
+    print(f"Std GTVp Dice: {std_dice:.4f}")
+    print(f"GTVp DSCagg: {dsc_agg:.4f}")
+    print("-----------------------------------------------------------")
+    print(
+        f"  (DSCagg from TP={tp_total} FP={fp_total} FN={fn_total}; "
+        f"mean/std over n={len(patient_dice)} cases with GTVp in GT)"
+    )
+
+    if "cohort" in res_df.columns:
+        for cohort in sorted(res_df["cohort"].dropna().unique()):
+            sub = res_df[res_df["cohort"] == cohort]
+            d = sub[dice_col].dropna()
+            tp = np.int64(np.nansum(sub[tp_key].to_numpy(dtype=np.int64)))
+            fp = np.int64(np.nansum(sub[fp_key].to_numpy(dtype=np.int64)))
+            fn = np.int64(np.nansum(sub[fn_key].to_numpy(dtype=np.int64)))
+            std_c = float(d.std(ddof=1)) if len(d) > 1 else float("nan")
+            mean_c = float(d.mean()) if len(d) else float("nan")
+            print(
+                f"  cohort={cohort}: n={len(sub)} "
+                f"mean={mean_c:.4f} std={std_c:.4f} "
+                f"DSCagg={dsc_agg_from_totals(tp, fp, fn):.4f}"
+            )
 
 
 def evaluate_predictions(config: TrainingConfig, pred_dir: str):
@@ -362,6 +432,13 @@ def evaluate_predictions(config: TrainingConfig, pred_dir: str):
     results_file = os.path.join(config.log_dir, f'evaluation_d{config.dataset_id}.csv')
     res_df.to_csv(results_file, index=False)
     print(f"\n✓ Detailed results saved to: {results_file}")
+
+    gtvp_idx = _gtvp_label_index(config)
+    if gtvp_idx is None:
+        print("⚠️  Organ dictionary has no GTVp; skip HECKTOR DSCagg summary")
+    else:
+        print(f"GTVp label index (from organ dictionary): {gtvp_idx}")
+        _print_gtvp_test_summary(res_df, gtvp_name="GTVp")
 
     try:
         export_predictions_for_slicer(config, str(pred_path))

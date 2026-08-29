@@ -91,6 +91,7 @@ python train_nnunet.py --step evaluate
 This will:
 - Run predictions on test set
 - Compute Dice and Surface Dice metrics
+- Print HECKTOR-style GTVp DSCagg (cohort-level, not mean of per-patient Dice)
 - Save detailed results to CSV
 - Export 3D Slicer NIfTIs (`labelsTs_dice_and_viz/predictions_nifti/`) aligned to CT/PET, with `dataset.json` label IDs
 
